@@ -1,31 +1,37 @@
 {% extends "main/layout.html" %}
 {% block title %}Расчет{% endblock title %}
 {% block content %}
-    <body>
-    <h4>Для начала расчета выберите защищаемую ЛЭП</h4>
+<div class="container-fluid">
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}
-        <button type="submit">Подтвердить</button>
+        <button type="submit" class="btn btn-primary mt-2">Подтвердить</button>
     </form>
+
     {% if selected_line %}
-        <p><strong>Выбранная ЛЭП: </strong>{{ selected_line_data.dispatch_name }}</p>
-        <p><strong>Наименование ЛЭП в PowerFactory: </strong>{{ selected_line_data.pf_name }}</p>
-        <p><strong>ДДТН, А: </strong>{{ selected_line_data.current_capacity }}</p>
-        <p><strong>Длина, км: </strong>{{ selected_line_data.length }}</p>
-        <p><strong>Подстанции ЛЭП:</strong></p>
-        {% for protection_half_set in protection_half_sets %}
-            <ul>
-                <li>{{ protection_half_set.substation }}</li>
-            </ul>
-        {% endfor %}
-        <p><strong>Модель устройства РЗА: </strong>{{ protection_half_sets.0.protection_device }}</p>
-        <p><strong>Производитель: </strong>{{ protection_half_sets.0.protection_device.manufacturer }}</p>
-        <form method="post">
-            {% csrf_token %}
-            <input type="hidden" name="line" value="{{ selected_line.id }}">
-            <button type="submit" name="run_calculation">Выполнить расчет</button>
-        </form>
+        <!-- Карточка для ЛЭП -->
+        <div class="card mt-4 w-25">
+            <div class="card-header">
+                <strong>Защищаемая ЛЭП</strong>
+            </div>
+            <div class="card-body">
+                <p><strong>Диспетчерское наименование: </strong>{{ selected_line_data.dispatch_name }}</p>
+                <p><strong>Наименование в PowerFactory: </strong>{{ selected_line_data.pf_name }}</p>
+                <p><strong>ДДТН, А: </strong>{{ selected_line_data.current_capacity }}</p>
+            </div>
+        </div>
+
+        <!-- Карточка для устройства защиты -->
+        <div class="card mt-4 w-25">
+            <div class="card-header">
+                <strong>Устройство РЗА ЛЭП</strong>
+            </div>
+            <div class="card-body">
+                <p><strong>Модель устройства: </strong>{{ protection_half_sets.0.protection_device }}</p>
+                <p><strong>Производитель: </strong>{{ protection_half_sets.0.protection_device.manufacturer }}</p>
+            </div>
+        </div>
     {% endif %}
-    </body>
+    
+</div>
 {% endblock content %}

@@ -2,27 +2,44 @@
 {% load static %}
 <html lang="ru">
 <head>
-    <link rel="stylesheet" href="{% static 'main/css/yeti.css' %}"/>
+    <link rel="stylesheet" href="{% static 'main/css/bootstrap.min.css' %}"/>
+    <link rel="stylesheet" href="{% static 'main/css/bootstrap-icons.css' %}"/>
+    <link rel="stylesheet" href="{% static 'main/css/select2.min.css' %}"/>
+    <script src="{% static 'main/js/jquery.min.js' %}"></script>
+    <script src="{% static 'main/js/bootstrap.js' %}"></script>
+    <script src="{% static 'main/js/chart.umd.min.js' %}"></script>
+    <script src="{% static 'main/js/chartjs-plugin-annotation.min.js' %}"></script>
+    <script src="{% static 'main/js/select2.min.js' %}"></script>
     <meta charset="utf-8" />
     <title>{% block title %}{% endblock title %}</title>
 </head>
 <body>
-<nav class="navbar navbar-expand-lg bg-primary" data-bs-theme="dark">
-    <div class="container-fluid">
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary" data-bs-theme="dark">
+    <div class="container">
         <div class="collapse navbar-collapse" id="navbarColor01">
             <ul class="navbar-nav me-auto">
                 <li class="nav-item" style="margin-right: 15px;">
                     <a class="nav-link" href="{% url 'home' %}" style="font-size: 20px;">PF.ДФЗ</a>
                 </li>
                 <li class="nav-item" style="margin-right: 15px;">
-                    <a class="nav-link" href="{% url 'calculation' %}" style="font-size: 20px;">РАСЧЕТ</a>
+                    <a class="nav-link {% if request.path == '/calculation/' %}active{% endif %}" href="{% url 'calculation' %}" style="font-size: 20px;">РАСЧЕТ</a>
                 </li>
                 <li class="nav-item" style="margin-right: 15px;">
-                    <a class="nav-link" href="/sensitivity" style="font-size: 20px;">ЧУВСТВИТЕЛЬНОСТЬ</a>
+                    <a class="nav-link {% if request.path == '/calculation/calculation_list/' %}active{% endif %}" href="{% url 'calculation_list' %}" style="font-size: 20px;">ИСТОРИЯ</a>
                 </li>
                 <li class="nav-item" style="margin-right: 15px;">
-                    <a class="nav-link" href="{% url 'calculation_list' %}" style="font-size: 20px;">ИСТОРИЯ</a>
+                    <a class="nav-link {% if request.path in '/core/ /core/lines/' %}active{% endif %}" href="{% url 'models_list' %}" style="font-size: 20px;">АДМИНИСТРИРОВАНИЕ</a>
                 </li>
+            </ul>
+            <ul class="navbar-nav ms-auto">
+                <!-- {% if user.is_authenticated %} -->
+                <li class="nav-item">
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+                        <button class="btn btn-outline-light" type="submit">ВЫХОД</button>
+                    </form>
+                </li>
+                <!-- {% endif %} -->
             </ul>
         </div>
     </div>

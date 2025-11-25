@@ -16,10 +16,31 @@ Including another URLconf
 """
 
 from django.contrib import admin
+from django.contrib.auth import views as auth_views
 from django.urls import include, path
 
+from main.forms import CustomAuthenticationForm
+from main.views import page_not_found
+
+
 urlpatterns = [
+    path(
+        "",
+        auth_views.LoginView.as_view(
+            template_name="main/login.html",
+            authentication_form=CustomAuthenticationForm
+        ),
+        name="login"
+    ),
+    path(
+        'logout/',
+        auth_views.LogoutView.as_view(),
+        name='logout'
+    ),
     path("admin/", admin.site.urls),
-    path("", include("main.urls")),
+    path("main/", include("main.urls")),
     path("calculation/", include("calculation.urls")),
+    path('core/', include('core.urls'))
 ]
+
+handler404 = page_not_found

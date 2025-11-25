@@ -1,0 +1,36 @@
+{% extends "main/layout.html" %}
+{% block title %}Администрирование{% endblock title %}
+{% block content %}
+    
+    <body>
+    <div class="container">
+        
+        <div class="card border-primary mt-4">
+            <div class="card-body">
+                <h4 class="card-title">
+                    <a href="{% url 'lines_list' %}" class="text-decoration-none">ЛЭП</a>
+                </h4>
+                <p class="card-text">Линии электропередач, защищаемые дифференциально-фазной защитой.</p>
+            </div>
+        </div>
+        
+        <div class="card border-primary mt-4">
+            <div class="card-body">
+                <h4 class="card-title">
+                    <a href="#" class="text-decoration-none">Подстанции</a>
+                </h4>
+                <p class="card-text">Электрические станции и подстанции.</p>
+            </div>
+        </div>
+        
+        <div class="card border-primary mt-4">
+            <div class="card-body">
+                <h4 class="card-title">Полукомплекты ДФЗ</h4>
+                <p class="card-text">Полукомплекты дифференциально-фазной защиты.</p>
+            </div>
+        </div>
+        
+    </div>
+    </body>
+    
+{% endblock %}

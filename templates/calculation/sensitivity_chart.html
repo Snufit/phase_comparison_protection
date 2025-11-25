@@ -1,0 +1,75 @@
+{% extends "main/layout.html" %}
+{% block title %}Диаграмма чувствительности{% endblock title %}
+{% block content %}
+    
+    <canvas id="sensitivityChart"></canvas>
+    <button id="downloadChart" class="btn btn-primary mt-3">
+        <i class="bi bi-download"></i>
+    </button>
+
+    <script>
+        const ctx = document.getElementById('sensitivityChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {{ data|safe }},
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        stacked: false,  // Несколько столбцов рядом для одной схемы
+                    },
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    annotation: {
+                        annotations: {
+                            line1: {
+                                type: 'line',
+                                yMin: 2,  // Позиция линии по оси Y
+                                yMax: 2,  // Позиция линии по оси Y
+                                borderColor: 'orange',  // Цвет линии
+                                borderWidth: 2,  // Толщина линии
+                                label: {
+                                    enabled: true,
+                                    content: 'test',  // Подпись на линии
+                                    position: 'center',  // Позиция подписи
+                                    font: {
+                                        size: 14
+                                    },
+                                }
+                            },
+                            line2: {
+                                type: 'line',
+                                yMin: 1,  // Позиция линии по оси Y
+                                yMax: 1,  // Позиция линии по оси Y
+                                borderColor: 'red',  // Цвет линии
+                                borderWidth: 2,  // Толщина линии
+                                label: {
+                                    enabled: true,
+                                    content: 'Y = 2',  // Подпись на линии
+                                    position: 'right',  // Позиция подписи
+                                    font: {
+                                        size: 14
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Скачивание графика
+        document.getElementById('downloadChart').addEventListener('click', function () {
+            const link = document.createElement('a');
+            link.download = 'sensitivity_chart.png'; // Имя файла
+            link.href = ctx.canvas.toDataURL('image/png'); // Экспорт canvas в изображение
+            link.click();
+        });
+    </script>
+    
+{% endblock %}
+
+

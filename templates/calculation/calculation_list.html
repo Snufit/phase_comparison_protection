@@ -1,13 +1,15 @@
 {% extends "main/layout.html" %}
 {% block title %}История{% endblock title %}
 {% block content %}
+<div class="container">
     <body>
     <table class="table table-hover">
         <thead>
         <tr>
             <th scope="col">Номер расчета</th>
-            <th scope="col">Защищаемая ЛЭП</th>
+            <th scope="col">Пользователь</th>
             <th scope="col">Дата расчета</th>
+            <th scope="col">Защищаемая ЛЭП</th>
             <th scope="col">Отчет</th>
         </tr>
         </thead>
@@ -15,8 +17,9 @@
         {% for calculation in page_obj.object_list %}
             <tr>
                 <td>{{ calculation.calculation_number }}</td>
-                <td>{{ calculation.line }}</td>
+                <td>{{ calculation.user }}</td>
                 <td>{{ calculation.calculation_date }}</td>
+                <td>{{ calculation.line }}</td>
                 <td>
                     <a href="{% url 'results' calculation_meta_id=calculation.id %}">Открыть отчет</a>
                 </td>
@@ -49,4 +52,5 @@
         </ul>
     </nav>
     </body>
+</div>
 {% endblock content %}

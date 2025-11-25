@@ -1,41 +1,102 @@
 {% extends "main/layout.html" %}
 {% block title %}Анализ чувствительности{% endblock title %}
 {% block content %}
-    <h4>Анализ чувствительности</h4>
+<div class="container mt-3">
+    <h4 class="mb-3">Анализ чувствительности</h4>
     <p><strong>Защищаемая ЛЭП:</strong> {{ calculation_meta.line }}</p>
     <p><strong>Дата расчета:</strong> {{ calculation_meta.calculation_date }}</p>
+    <button type="button" class="btn btn-primary mb-2" data-bs-toggle="modal" data-bs-target="#selectModal" data-bs-toggle="tooltip" data-bs-placement="top" title="Построить диаграмму чувствительности">
+        <i class="bi bi-graph-up fs-6"></i> Диаграмма чувствительности
+    </button>
+    <a href="{% url 'export_sensitivity_analysis' calculation_meta.id %}" class="btn btn-primary mb-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Скачать таблицу в формате Excel">
+        <i class="bi bi-filetype-xlsx fs-6"></i> Загрузить отчет
+    </a>
     <body>
-    <table class="table table-hover">
-        <thead>
-        <tr>
-            <th scope="col">Полукомплект</th>
-            <th scope="col">Орган ДФЗ</th>
-            <th scope="col">Схема</th>
-            <th scope="col">Вид КЗ</th>
-            <th scope="col">Чувствительность</th>
-            <th scope="col">Статус</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for result in sens_analysis %}
+        <table class="table table-hover">
+            <thead>
             <tr>
-                <td>{{ result.settings_calculation.protection_half_set }}</td>
-                <td>{{ result.settings_calculation.component }}</td>
-                <td>{{ result.fault_calculation.network_topology }}</td>
-                <td>{{ result.fault_calculation.fault_type }}</td>
-                <td>{{ result.sensitivity_rate }}</td>
-                <td>
-                    {% if result.sensitivity_rate <= 1 %}
-                        <span class="badge rounded-pill bg-danger">Danger</span>
-                    {% elif result.sensitivity_rate > 1 and result.sensitivity_rate < 2 %}
-                        <span class="badge rounded-pill bg-warning">Warning</span>
-                    {% else %}
-                        <span class="badge rounded-pill bg-success">Success</span>
-                    {% endif %}
-                </td>
+                <th scope="col">Полукомплект</th>
+                <th scope="col">Орган ДФЗ</th>
+                <th scope="col">Схема</th>
+                <th scope="col">Вид КЗ</th>
+                <th scope="col">Чувствительность</th>
+                <th scope="col">Статус</th>
             </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+            </thead>
+            <tbody>
+            {% for result in sens_analysis %}
+                <tr>
+                    <td>{{ result.settings_calculation.protection_half_set }}</td>
+                    <td>{{ result.settings_calculation.component }}</td>
+                    <td>{{ result.fault_calculation.network_topology }}</td>
+                    <td>{{ result.fault_calculation.fault_type }}</td>
+                    <td>{{ result.sensitivity_rate }}</td>
+                    <td>
+                        {% if result.status == 'Нечувствительна' %}
+                            <span class="badge rounded-pill bg-danger">{{ result.status }}</span>
+                        {% elif result.status == 'Низкая чувствительность' %}
+                            <span class="badge rounded-pill bg-warning">{{ result.status }}</span>
+                        {% else %}
+                            <span class="badge rounded-pill bg-success">{{ result.status }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+
+    <nav aria-label="Навигация">
+        <ul class="pagination">
+            {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}">&laquo;</a>
+                </li>
+            {% endif %}
+            {% for num in page_obj.paginator.page_range %}
+                <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+                    <a class="page-link" href="?page={{ num }}">{{ num }}</a>
+                </li>
+            {% endfor %}
+            {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}">&raquo;</a>
+                </li>
+            {% endif %}
+        </ul>
+    </nav>
+
+    <div class="modal fade" id="selectModal" tabindex="-1" aria-labelledby="selectModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="selectModalLabel">Выбор органа и полукомплекта</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="GET" action="{% url 'sensitivity_chart' %}">
+                        <div class="mb-3">
+                            <label for="component" class="form-label">Орган</label>
+                            <select class="form-select" id="component" name="component_id">
+                                {% for result in sens_analysis %}
+                                    <option value="{{ result.settings_calculation.component.id }}">{{ result.settings_calculation.component }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="half_set" class="form-label">Полукомплект</label>
+                            <select class="form-select" id="half_set" name="half_set_id">
+                                {% for result in sens_analysis %}
+                                    <option value="{{ result.settings_calculation.protection_half_set.id }}">{{ result.settings_calculation.protection_half_set }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Построить график</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     </body>
+</div>
 {% endblock %}

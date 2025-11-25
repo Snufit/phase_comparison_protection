@@ -1,0 +1,36 @@
+{% extends "main/layout.html" %}
+{% block title %}Расчет{% endblock title %}
+{% block content %}
+    <body>
+    <div class="container w-25 ms-0 mt-3">
+    <ul class="list-group">
+        <!-- Первый элемент списка, который будет ссылкой на модальное окно -->
+        <li class="list-group-item">
+            <a href="#" class="list-group-item-action" data-bs-toggle="modal" data-bs-target="#exampleModal">Элемент списка 1</a>
+        </li>
+        <li class="list-group-item">Элемент списка 2</li>
+        <li class="list-group-item">Элемент списка 3</li>
+    </ul>
+</div>
+
+<!-- Модальное окно -->
+<div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exampleModalLabel">Простое модальное окно</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+            </div>
+            <div class="modal-body">
+                Это простое модальное окно с информацией, которое откроется при клике на первый элемент списка.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    </body>
+{% endblock content %}

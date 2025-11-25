@@ -22,6 +22,7 @@ class Command(BaseCommand):
 
         line = Line.objects.create(
             dispatch_name="ВЛ 500 кВ Ново-Анжерская - Томская",
+            pf_name='ВЛ 527'
         )
 
         substations = Substation.objects.bulk_create(

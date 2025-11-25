@@ -18,7 +18,15 @@ class Line(models.Model):
         null=True,
     )
     current_capacity = models.FloatField(verbose_name="ДДТН, А", default=2000)
-    length = models.FloatField(verbose_name="Длина ЛЭП, км", blank=True, null=True)
+    length = models.FloatField(
+        verbose_name="Длина ЛЭП, км", blank=True, null=True
+    )
+    voltage_transformer_ratio = models.FloatField(
+        verbose_name='Коэффициент трансформации ТН',
+        default=5000,
+        blank=True,
+        null=True
+    )
 
     class Meta:
         """Мета-данные модели Line."""

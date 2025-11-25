@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 
+from django.contrib.messages import constants as message_constants
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,7 +27,7 @@ SECRET_KEY = "django-insecure-vz0gol4zltqje_4^g8*py2l&1@4c(j6ysr$xak9w^#w=t%r*js
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['127.0.0.1']
 
 
 # Application definition
@@ -79,9 +81,9 @@ WSGI_APPLICATION = "phase_comparison_protection.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "db_phase_comparison_protection",
+        "NAME": "test",
         "USER": "postgres",
-        "PASSWORD": "4815162342",
+        "PASSWORD": "123zxc",
         "HOST": "127.0.0.1",
         "PORT": "5432",
     }
@@ -106,11 +108,15 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# AUTHENTICATION_BACKENDS = [
+#     'django.contrib.auth.backends.ModelBackend',
+# ]
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "ru"
 
 TIME_ZONE = "UTC"
 
@@ -128,3 +134,11 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGIN_URL = '/'
+LOGIN_REDIRECT_URL = 'calculation/'
+LOGOUT_REDIRECT_URL = '/'
+
+MESSAGE_TAGS = {
+    message_constants.ERROR: 'danger',
+}
