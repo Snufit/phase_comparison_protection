@@ -199,7 +199,7 @@ def _get_main_substations_only(branch_object) -> List[str]:
     Возвращает ТОЛЬКО подстанции на концах основной ЛЭП (iUsage = 0)
     """
     substations: List[str] = []
-    af = 23
+    af = 23423
     try:
         term0 = branch_object.GetAttribute('cTerm0')
         term1 = branch_object.GetAttribute('cTerm1')
