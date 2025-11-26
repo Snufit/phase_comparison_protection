@@ -1,10 +1,8 @@
 from random import shuffle
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 import sys
 
-POWERFACTORY_PATH: str = (
-    r"C:\Program Files\DIgSILENT\PowerFactory 2021 SP3\Python\3.8"
-)
+POWERFACTORY_PATH: str = r"C:\Program Files\DIgSILENT\PowerFactory 2021 SP3\Python\3.8"
 PROJECT_NAME: str = "ОДУ Сибири 1.0"
 
 sys.path.append(POWERFACTORY_PATH)
@@ -13,7 +11,7 @@ try:
     import powerfactory  # type: ignore
 except ModuleNotFoundError:
     raise ModuleNotFoundError(
-        'Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору.'
+        "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
     )
 app = powerfactory.GetApplication()
 app.ActivateProject(PROJECT_NAME)
@@ -24,7 +22,7 @@ PF_SUBSTATION_CLASS = "*.ElmSubstat"
 
 
 def _get_powerfactory_object(
-        app, pf_class_name: str, pf_object_name: str
+    app, pf_class_name: str, pf_object_name: str
 ) -> Optional[Any]:
     """
     Метод поиска объектов в модели PowerFactory
@@ -161,11 +159,7 @@ def _get_line_end_substations(branch_object) -> List[str]:
     """
 
     substations: List[str] = []
-    result = {
-        'main_substations': [],
-        'branch_substations': [],
-        'all_substations': []
-    }
+    result = {"main_substations": [], "branch_substations": [], "all_substations": []}
 
     try:
         lines = get_lines_from_branch(app, branch_object)
@@ -174,9 +168,9 @@ def _get_line_end_substations(branch_object) -> List[str]:
             terminals = line.GetConnectedElements() or []
 
             for j, term in enumerate(terminals):
-                if (term.GetClassName() == "ElmTerm"):
+                if term.GetClassName() == "ElmTerm":
                     try:
-                        iusage = term.GetAttribute('iUsage')
+                        iusage = term.GetAttribute("iUsage")
                         if iusage == 0:  # Шина
                             # Получаем родительский объект терминала
                             parent = term.GetParent()
@@ -184,7 +178,10 @@ def _get_line_end_substations(branch_object) -> List[str]:
                                 # Проверяем, что родитель - подстанция
                                 if parent.GetClassName() == "ElmSubstat":
                                     substation_name = parent.GetAttribute("loc_name")
-                                    if substation_name and substation_name not in substations:
+                                    if (
+                                        substation_name
+                                        and substation_name not in substations
+                                    ):
                                         substations.append(substation_name)
                     except Exception as e:
                         print(f"Ошибка при обработке терминала: {e}")
@@ -195,95 +192,177 @@ def _get_line_end_substations(branch_object) -> List[str]:
     return substations
 
 
-def _get_main_substations_only(branch_object) -> List[str]:
+def _get_main_substations_with_voltage(branch_object) -> List[Dict[str, Any]]:
     """
-    Возвращает ТОЛЬКО подстанции на концах основной ЛЭП (iUsage = 0)
+    Возвращает подстанции на концах ЛЭП с информацией о классе напряжения.
     """
-    substations: List[str] = []
-    af = shuffle
-    try:
-        term0 = branch_object.GetAttribute('cTerm0')
-        term1 = branch_object.GetAttribute('cTerm1')
-        end_terms = [term0, term1]
-        print(f"   term0 тип: {type(term0)}, значение: {term0}")
-        print(f"   term1 тип: {type(term1)}, значение: {term1}")
-        end_term_names = []
-        for i, term in enumerate(end_terms):
-            if term:
-                end_term_names.append(term)
-                print(f"Концевой терминал {i + 1}: {term}")
-                continue
+    substations = []
 
+    try:
+        # Получаем конечные терминалы ветви
+        term0 = branch_object.GetAttribute("cTerm0")
+        term1 = branch_object.GetAttribute("cTerm1")
+        end_terms = [term0, term1]
+
+        # Получаем имена конечных терминалов
+        end_term_names = []
+        for term in end_terms:
+            if term:
+                try:
+                    term_name = term.GetAttribute("loc_name")
+                    if term_name:
+                        end_term_names.append(term_name)
+                except Exception as e:
+                    print(f"Ошибка при получении имени терминала: {e}")
+                    continue
+
+        # Получаем все подключенные элементы
         terminals = branch_object.GetConnectedElements() or []
 
-        for j, term in enumerate(terminals):
+        # Ищем терминалы, которые являются конечными и имеют iUsage = 0 (шина)
+        for term in terminals:
             if term.GetClassName() == "ElmTerm":
                 try:
-                    term_name = term.GetAttribute('loc_name')
-                    iusage = term.GetAttribute('iUsage')
-                    print(f"{j + 1}: {term_name}")
-                    if term_name in end_term_names and iusage == 0:  # Шина
+                    term_name = term.GetAttribute("loc_name")
+                    iusage = term.GetAttribute("iUsage")
+
+                    # Проверяем, что это конечный терминал и это шина
+                    if str(term_name) in end_term_names and iusage == 0:
                         # Получаем родительский объект терминала
                         parent = term.GetParent()
                         if parent:
-                            parent_name = parent.GetAttribute('loc_name')
                             parent_class = parent.GetClassName()
                             # Проверяем, что родитель - подстанция
                             if parent_class == "ElmSubstat":
-                                substation_name = parent_name
-                                if substation_name and substation_name not in substations:
-                                    substations.append(substation_name)
+                                substation_name = parent.GetAttribute("loc_name")
+                                voltage_level = _get_voltage_level(term)
+                                if substation_name:
+                                    substation_info = {
+                                        "name": substation_name,
+                                        "voltage_kv": voltage_level,
+                                        "terminal_name": term_name,
+                                    }
+                                    # Проверяем на дубликаты
+                                    is_duplicate = any(
+                                        sub["name"] == substation_name
+                                        and sub["voltage_kv"] == voltage_level
+                                        for sub in substations
+                                    )
+
+                                    if not is_duplicate:
+                                        substations.append(substation_info)
                 except Exception as e:
                     print(f"Ошибка при обработке терминала: {e}")
                     continue
     except Exception as e:
-        print(f"Ошибка в _get_main_substations_only: {e}")
+        print(f"Ошибка в _get_main_substations_with_voltage: {e}")
 
     return substations
 
 
-def _has_parallel_counterparts(app, branch_object) -> bool:  # В разработке
+def _get_voltage_level(terminal):
+    """
+    Возвращает класс напряжения терминала.
+    """
+    try:
+        voltage = terminal.GetAttribute("uknom")
+        if voltage and voltage > 0:
+            return round(voltage, 0)  # Округляем до целых
+        return None
+    except Exception:
+        return None
+
+
+def _has_parallel_counterparts(app, branch_object) -> bool:
     """
     Определяет, есть ли у ЛЭП параллельные линии между теми же подстанциями.
 
     Алгоритм:
-    1. Находим подстанции на концах текущей ЛЭП
+    1. Находим ОСНОВНЫЕ подстанции на концах текущей ЛЭП
     2. Ищем все ЛЭП в модели
-    3. Для каждой ЛЭП проверяем, подключена ли она к тем же подстанциям
+    3. Для каждой ЛЭП проверяем, подключена ли она к тем же ОСНОВНЫМ подстанциям и которые имеют один и тот же класс напряжения
     4. Считаем количество таких ЛЭП (параллельных)
     """
-
-    end_substations = _get_line_end_substations(branch_object)
-    if len(end_substations) != 2:
-        return False
-
-    normalized_pair = tuple(sorted(end_substations))
-
     try:
+        # 1. Получаем ОСНОВНЫЕ подстанции текущей ЛЭП
+        main_substations = _get_main_substations_with_voltage(branch_object)
+        current_line_name = branch_object.GetAttribute("loc_name")
+
+        print(f"🔍 Поиск параллельных линий для: {current_line_name}")
+        print(f"   Основные ПС с напряжением:")
+        for sub in main_substations:
+            print(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
+
+        if len(main_substations) != 2:
+            print(f"У ЛЭП должно быть 2 ПС, а найдено: {len(main_substations)}")
+            return False
+
+        # Нормализуем с учетом напряжения
+        normalized_pair = tuple(
+            sorted(main_substations, key=lambda x: (x["name"], x["voltage_kv"] or 0))
+        )
+        print(f"   Нормализованная пара:")
+        for sub in normalized_pair:
+            print(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
+
+        # 2. Получаем все ЛЭП в модели
         all_lines = app.GetCalcRelevantObjects(PF_LINE_CLASS) or []
-    except Exception:
+        print(f"Всего ЛЭП в модели: {len(all_lines)}")
+
+        parallel_count = 0
+        found_parallels = []
+
+        # 3. Проверяем каждую ЛЭП на параллельность
+        for line in all_lines:
+            try:
+                line_name = line.GetAttribute("loc_name")
+
+                # Пропускаем ЛЭП, которую выбрали
+                if line == branch_object:
+                    continue
+
+                candidate_substations = _get_main_substations_with_voltage(line)
+                if len(candidate_substations) != 2:
+                    continue
+
+                # Нормализуем пару подстанций для сравнения
+                candidate_pair = tuple(
+                    sorted(
+                        candidate_substations,
+                        key=lambda x: (x["name"], x["voltage_kv"] or 0),
+                    )
+                )
+
+                # Проверяем полное совпадение (имя ПС + напряжение)
+                if candidate_pair == normalized_pair:
+                    parallel_count += 1
+                    found_parallels.append(
+                        {"name": line_name, "substations": candidate_substations}
+                    )
+                    print(f"Найдена параллельная ЛЭП: {line_name}")
+                    for sub in candidate_substations:
+                        print(f"        - {sub['name']} ({sub['voltage_kv']} кВ)")
+                    print(f"Основные ПС: {candidate_substations}")
+                    # return True
+            except Exception as e:
+                print(f"Ошибка проверки ЛЭП {line_name}: {e}")
+                continue
+        # 4. Анализируем результат
+        print(f"Итог: найдено {parallel_count} параллельных линий")
+        if found_parallels:
+            print(f"Параллельные линии:")
+            for parallel in found_parallels:
+                print(f"        - {parallel['name']}")
+
+        # Считаем параллельной если найдена хотя бы одна параллельная линия
+        is_parallel = parallel_count >= 1
+        print(f"Результат: {'ПАРАЛЛЕЛЬНАЯ' if is_parallel else 'ОДИНОЧНАЯ'}")
+
+        return is_parallel
+
+    except Exception as e:
+        print(f"Ошибка проверки параллельности: {e}")
         return False
-
-    parallels = 0
-    for line in all_lines:
-        try:
-            if line == branch_object:
-                parallels += 1
-                continue
-
-            candidate_substations = _get_line_end_substations(line)
-            if len(candidate_substations) != 2:
-                continue
-
-            if tuple(sorted(candidate_substations)) == normalized_pair:
-                parallels += 1
-
-            if parallels >= 2:  # текущая линия + хотя бы одна параллельная
-                return True
-        except Exception:
-            continue
-
-    return False
 
 
 def _has_branches(app, branch_object) -> bool:
@@ -344,6 +423,42 @@ def get_line_type(app, branch_object) -> str:
     return "Одиночная ЛЭП"
 
 
+def get_all_lines_with_indexes(app):
+    """
+    Выгружает все линии ElmBranch с их индексами и именами.
+    """
+    try:
+        # Получаем все линии
+        all_lines = app.GetCalcRelevantObjects("*.ElmBranch") or []
+
+        print("ВСЕ ЛИНИИ В МОДЕЛИ:")
+        print("=" * 50)
+
+        lines_info = []
+        for index, line in enumerate(all_lines):
+            try:
+                line_name = line.GetAttribute("loc_name")
+                line_class = line.GetClassName()
+                lines_info.append(
+                    {
+                        "index": index,
+                        "name": line_name,
+                        "class": line_class,
+                        "object": line,
+                    }
+                )
+                print(f"[{index:3d}] {line_name} ({line_class})")
+            except Exception as e:
+                print(f"[{index:3d}] Ошибка: {e}")
+
+        print(f"Всего линий: {len(lines_info)}")
+        return lines_info
+
+    except Exception as e:
+        print(f"Ошибка при получении линий: {e}")
+        return []
+
+
 def test_powerfactory_functions(app):
     """
     Простой тест для проверки работоспособности функций PowerFactory
@@ -368,14 +483,18 @@ def test_powerfactory_functions(app):
         full_name = "ВЛ 110 Власиха-Светлая"  # Пример полного имени
         full_name_obj = get_powerfactory_object_by_full_name(app, full_name)
         if full_name_obj:
-            print(f"   ✅ Найден объект по полному имени: {full_name_obj.GetAttribute('loc_name')}")
+            print(
+                f"   ✅ Найден объект по полному имени: {full_name_obj.GetAttribute('loc_name')}"
+            )
         else:
             print(f"   ❌ Объект '{full_name}' не найден")
         print()
 
         # 3. Тест get_pf_substation - получение подстанции
         print("3. Тест get_pf_substation:")
-        substation_name = "ПС 500 кВ Усть-Илимская ГЭС"  # Замените на реальное имя подстанции
+        substation_name = (
+            "ПС 500 кВ Усть-Илимская ГЭС"  # Замените на реальное имя подстанции
+        )
         pf_substation = get_pf_substation(app, substation_name)
         if pf_substation:
             print(f"   ✅ Найдена подстанция: {pf_substation.GetAttribute('loc_name')}")
@@ -383,17 +502,11 @@ def test_powerfactory_functions(app):
             print(f"   ❌ Подстанция '{substation_name}' не найдена")
         print()
     except Exception:
-        print('У Артема все х********')
+        print("У Артема все плохо")
 
 
 # Получаем список всех ElmBranch в модели
 branches = app.GetCalcRelevantObjects("*.ElmBranch")
-
-# Выбираем конкретный branch_object по индексу
-idx = 26  # индекс можно менять вручную
-branch = branches[idx]
-
-print(f"Тестируем ElmBranch: {branch}, loc_name={branch.GetAttribute('loc_name')}")
 
 
 def test_branch_functions(app, index: int):
@@ -425,7 +538,7 @@ def test_branch_functions(app, index: int):
 
     # --- тест 4 ---
     print("\n▶ Подстанции на концах ЛЭП:")
-    end_subs = _get_main_substations_only(branch)
+    end_subs = _get_main_substations_with_voltage(branch)
     print(end_subs)
 
     # --- тест 5 ---
@@ -443,5 +556,8 @@ def test_branch_functions(app, index: int):
 
     print("\n=== Тест завершён ===\n")
 
+
+# Использование
+# lines_info = get_all_lines_with_indexes(app)
 
 test_branch_functions(app, index=25)
