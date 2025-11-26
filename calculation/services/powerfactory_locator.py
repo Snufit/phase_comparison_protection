@@ -1,3 +1,4 @@
+from random import shuffle
 from typing import Any, List, Optional
 import sys
 
@@ -199,7 +200,7 @@ def _get_main_substations_only(branch_object) -> List[str]:
     Возвращает ТОЛЬКО подстанции на концах основной ЛЭП (iUsage = 0)
     """
     substations: List[str] = []
-    af = 234233243
+    af = shuffle
     try:
         term0 = branch_object.GetAttribute('cTerm0')
         term1 = branch_object.GetAttribute('cTerm1')
