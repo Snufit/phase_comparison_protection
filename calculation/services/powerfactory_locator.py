@@ -1,5 +1,5 @@
 from random import shuffle
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import sys
 
 POWERFACTORY_PATH: str = r"C:\Program Files\DIgSILENT\PowerFactory 2021 SP3\Python\3.8"
@@ -380,19 +380,41 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
         return False
 
 
-def _has_branches(app, branch_object) -> bool:
+def _has_branches(
+    app,
+    branch_object,
+    return_branch_substations: bool = False,
+    check_substations: bool = True,
+) -> Union[bool, List[Dict[str, Any]]]:
     """
     Определяет наличие ответвлений у ЛЭП.
 
-    ЛЭП с ответвлением можно считать,
-    если существует соединительный терминал (iUsage == 1), у которого
-    более двух связанных элементов *.StaCubic (узлов ответвлений), то
-    линия считается имеющей ответвление(я).
+    ЛЭП с ответвлением можно считать:
+    1. Если существует соединительный терминал (iUsage == 1), у которого
+       более двух связанных элементов *.StaCubic (узлов ответвлений)
+    2. Если есть подстанции, которые есть в _get_line_end_substations,
+       но отсутствуют в _get_main_substations_with_voltage (подстанции ответвлений)
+
+    Args:
+        app: COM-объект PowerFactory
+        branch_object: Объект ElmBranch
+        return_branch_substations: Если True, возвращает список подстанций ответвлений.
+                                  Если False, возвращает только булево значение.
+        check_substations: Если True, выполняется проверка №2 (сравнение подстанций).
+                          Если False, проверка №2 не выполняется.
+
+    Returns:
+        Если return_branch_substations=False: bool - есть ли ответвления
+        Если return_branch_substations=True: List[Dict] - список подстанций ответвлений
     """
 
     if not _validate_branch_object(app, branch_object):
-        return []
+        return [] if return_branch_substations else False
 
+    found_branch_substations = []
+    has_branches_by_terminals = False
+
+    # Проверка 1: по соединительным терминалам
     branch_terms = get_terms_from_branch(app, branch_object)
 
     for term in branch_terms:
@@ -413,27 +435,84 @@ def _has_branches(app, branch_object) -> bool:
             sta_cubics = []
 
         if len(sta_cubics) > 2:
-            return True
+            has_branches_by_terminals = True
+            break
 
-    return False
+    # Проверка 2: сравнение основных подстанций и всех подстанций на концах ЛЭП
+    if check_substations:
+        try:
+            main_substations = _get_main_substations_with_voltage(branch_object)
+            all_substations = _get_line_end_substations(branch_object)
+
+            # Создаем множества для сравнения (по имени и напряжению)
+            main_substations_set = {
+                (sub["name"], sub["voltage_kv"]) for sub in main_substations
+            }
+            all_substations_set = {
+                (sub["name"], sub["voltage_kv"]) for sub in all_substations
+            }
+
+            # Если есть подстанции, которые есть во всех, но не в основных - это ответвления
+            branch_substations_keys = all_substations_set - main_substations_set
+
+            if branch_substations_keys:
+                # Находим полную информацию о подстанциях ответвлений
+                for sub in all_substations:
+                    key = (sub["name"], sub["voltage_kv"])
+                    if key in branch_substations_keys:
+                        found_branch_substations.append(sub)
+        except Exception as e:
+            print(f"Ошибка при проверке ответвлений через подстанции: {e}")
+
+    # Определяем, есть ли ответвления (через проверку 1 или проверку 2)
+    has_branches = has_branches_by_terminals or len(found_branch_substations) > 0
+
+    if return_branch_substations:
+        return found_branch_substations if has_branches else []
+    return has_branches
 
 
 def get_line_type(app, branch_object) -> str:
     """
-    Возвращает тип ЛЭП:
-    - 'ЛЭП с ответвлением(ями)'
-    - 'Параллельная ЛЭП'
-    - 'Одиночная ЛЭП'
+    Возвращает тип ЛЭП.
+
+    Примеры:
+    - 'Одиночная ЛЭП' - обычная ЛЭП без ответвлений и без параллельных линий
+    - 'Одиночная ЛЭП с ответвлением' - ЛЭП с одним ответвлением, но без параллельных линий
+    - 'Одиночная ЛЭП с ответвлениями' - ЛЭП с несколькими ответвлениями, но без параллельных линий
+    - 'Параллельная ЛЭП' - параллельная ЛЭП без ответвлений
+    - 'Параллельная ЛЭП с ответвлением' - параллельная ЛЭП с одним ответвлением
+    - 'Параллельная ЛЭП с ответвлениями' - параллельная ЛЭП с несколькими ответвлениями
     """
 
     if not _validate_branch_object(app, branch_object):
-        return []
+        return "Одиночная ЛЭП"
 
-    if _has_branches(app, branch_object):
-        return "ЛЭП с ответвлением(ями)"
+    # Получаем информацию об ответвлениях и параллельности
+    has_branches = _has_branches(app, branch_object)
+    is_parallel = _has_parallel_counterparts(app, branch_object)
 
-    #    if _has_parallel_counterparts(app, branch_object):
-    #        return "Параллельная ЛЭП"
+    # Определяем форму склонения для ответвлений
+    branch_text = ""
+    if has_branches:
+        # Получаем список подстанций ответвлений для определения количества
+        branch_substations = _has_branches(
+            app, branch_object, return_branch_substations=True, check_substations=True
+        )
+        if len(branch_substations) == 1:
+            branch_text = " с ответвлением"
+        elif len(branch_substations) > 1:
+            branch_text = " с ответвлениями"
+        else:
+            # Ответвления найдены только через проверку по терминалам, количество неизвестно
+            branch_text = " с ответвлением(ями)"
+
+    # Формируем тип ЛЭП в зависимости от комбинации признаков
+    if is_parallel:
+        return f"Параллельная ЛЭП{branch_text}"
+
+    if has_branches:
+        return f"Одиночная ЛЭП{branch_text}"
 
     return "Одиночная ЛЭП"
 
