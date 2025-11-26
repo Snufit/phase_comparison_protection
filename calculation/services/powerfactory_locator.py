@@ -153,21 +153,19 @@ def get_terms_from_branch(app, branch_object):
     return list(terminals) if terminals else []
 
 
-def _get_line_end_substations(branch_object) -> List[str]:
+def _get_line_end_substations(branch_object) -> List[Dict[str, Any]]:
     """
-    Возвращает список имен подстанций на концах ЛЭП.
+    Возвращает список подстанций на концах ЛЭП с информацией о классе напряжения.
     """
-
-    substations: List[str] = []
-    result = {"main_substations": [], "branch_substations": [], "all_substations": []}
+    substations = []
 
     try:
         lines = get_lines_from_branch(app, branch_object)
 
-        for i, line in enumerate(lines):
+        for line in lines:
             terminals = line.GetConnectedElements() or []
 
-            for j, term in enumerate(terminals):
+            for term in terminals:
                 if term.GetClassName() == "ElmTerm":
                     try:
                         iusage = term.GetAttribute("iUsage")
@@ -178,11 +176,23 @@ def _get_line_end_substations(branch_object) -> List[str]:
                                 # Проверяем, что родитель - подстанция
                                 if parent.GetClassName() == "ElmSubstat":
                                     substation_name = parent.GetAttribute("loc_name")
-                                    if (
-                                        substation_name
-                                        and substation_name not in substations
-                                    ):
-                                        substations.append(substation_name)
+                                    term_name = term.GetAttribute("loc_name")
+                                    voltage_level = _get_voltage_level(term)
+                                    if substation_name:
+                                        substation_info = {
+                                            "name": substation_name,
+                                            "voltage_kv": voltage_level,
+                                            "terminal_name": term_name,
+                                        }
+                                        # Проверяем на дубликаты
+                                        is_duplicate = any(
+                                            sub["name"] == substation_name
+                                            and sub["voltage_kv"] == voltage_level
+                                            for sub in substations
+                                        )
+
+                                        if not is_duplicate:
+                                            substations.append(substation_info)
                     except Exception as e:
                         print(f"Ошибка при обработке терминала: {e}")
                         continue
