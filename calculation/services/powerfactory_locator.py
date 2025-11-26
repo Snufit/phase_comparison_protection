@@ -222,7 +222,7 @@ def _get_main_substations_with_voltage(branch_object) -> List[Dict[str, Any]]:
                     iusage = term.GetAttribute("iUsage")
 
                     # Проверяем, что это конечный терминал и это шина
-                    if str(term_name) in end_term_names and iusage == 0:
+                    if term_name in end_term_names and iusage == 0:
                         # Получаем родительский объект терминала
                         parent = term.GetParent()
                         if parent:
@@ -262,7 +262,7 @@ def _get_voltage_level(terminal):
     try:
         voltage = terminal.GetAttribute("uknom")
         if voltage and voltage > 0:
-            return round(voltage, 0)  # Округляем до целых
+            return int(round(voltage))  # Округляем до целых
         return None
     except Exception:
         return None
@@ -292,9 +292,15 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
             print(f"У ЛЭП должно быть 2 ПС, а найдено: {len(main_substations)}")
             return False
 
-        # Нормализуем с учетом напряжения
+        # Нормализуем с учетом напряжения (только name и voltage_kv, без terminal_name)
         normalized_pair = tuple(
-            sorted(main_substations, key=lambda x: (x["name"], x["voltage_kv"] or 0))
+            sorted(
+                [
+                    {"name": sub["name"], "voltage_kv": sub["voltage_kv"]}
+                    for sub in main_substations
+                ],
+                key=lambda x: (x["name"], x["voltage_kv"] or 0),
+            )
         )
         print(f"   Нормализованная пара:")
         for sub in normalized_pair:
@@ -321,15 +327,19 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
                     continue
 
                 # Нормализуем пару подстанций для сравнения
-                candidate_pair = tuple(
+                # Сравниваем только по имени и напряжению, игнорируя terminal_name
+                candidate_normalized = tuple(
                     sorted(
-                        candidate_substations,
+                        [
+                            {"name": sub["name"], "voltage_kv": sub["voltage_kv"]}
+                            for sub in candidate_substations
+                        ],
                         key=lambda x: (x["name"], x["voltage_kv"] or 0),
                     )
                 )
 
                 # Проверяем полное совпадение (имя ПС + напряжение)
-                if candidate_pair == normalized_pair:
+                if candidate_normalized == normalized_pair:
                     parallel_count += 1
                     found_parallels.append(
                         {"name": line_name, "substations": candidate_substations}
