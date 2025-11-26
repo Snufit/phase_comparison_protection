@@ -208,13 +208,8 @@ def _get_main_substations_with_voltage(branch_object) -> List[Dict[str, Any]]:
         end_term_names = []
         for term in end_terms:
             if term:
-                try:
-                    term_name = term.GetAttribute("loc_name")
-                    if term_name:
-                        end_term_names.append(term_name)
-                except Exception as e:
-                    print(f"Ошибка при получении имени терминала: {e}")
-                    continue
+                end_term_names.append(term)
+                continue
 
         # Получаем все подключенные элементы
         terminals = branch_object.GetConnectedElements() or []
