@@ -1,7 +1,7 @@
-from django.contrib.auth.models import User
-from django.db import models
-from django.db.models.signals import pre_save
-from django.dispatch import receiver
+from django.contrib.auth.models import User  # type: ignore
+from django.db import models  # type: ignore
+from django.db.models.signals import pre_save  # type: ignore
+from django.dispatch import receiver  # type: ignore
 
 from core.models import Component, Line, ProtectionHalfSet
 
