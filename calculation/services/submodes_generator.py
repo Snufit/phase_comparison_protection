@@ -3,27 +3,28 @@ from typing import List, Any
 
 
 def generate_half_set_submodes(
-    half_set_topology,
-    half_set_submodes_data
+    half_set_topology, # топология полукомплекта
+    half_set_submodes_data # параметры генерации подрежимов
 ):
-
+    # Подсчитать количество элементов каждого типа:
     total_lines_number = get_elements_number_by_type(
         half_set_topology, 'ЛЭП'
     )
     total_autotransformers_number = get_elements_number_by_type(
         half_set_topology, 'АТ'
     )
-
+    # Определить параметры генерации (с значениями по умолчанию):
     min_outages = half_set_submodes_data.get('min_outages') or 0
     max_outages = half_set_submodes_data.get('max_outages') or (len(half_set_topology) + 1) // 2
     max_lines = half_set_submodes_data.get('min_outages') or (total_lines_number + 1) // 2
     max_autotransformers = (
         half_set_submodes_data.get('max_autotransformers') or total_autotransformers_number // 2
     )
-
+    # Сгенерировать все возможные комбинации отключений:
     submodes = generate_submodes(
         half_set_topology, min_outages, max_outages
     )
+    # Отфильтровать валидные подрежимы:
     valid_submodes = validate_submodes(
         submodes, max_lines, max_autotransformers
     )
@@ -39,7 +40,7 @@ def generate_submodes(half_set_topology: List[Any], min_outages, max_outages):
             half_set_topology, outages
         )
         submodes.extend(current_combinations)
-    return submodes
+    return submodes # ВЫХОД: List[Tuple] - список кортежей (комбинаций элементов)
 
 
 def get_elements_number_by_type(half_set_topology, element_type: str):
@@ -47,7 +48,7 @@ def get_elements_number_by_type(half_set_topology, element_type: str):
     for element in half_set_topology:
         if element.get('type') == element_type:
             elements_number += 1
-    return elements_number
+    return elements_number # int - количество элементов указанного типа
 
 
 def validate_submodes(submodes, max_lines, max_autotransformers):
@@ -72,7 +73,7 @@ def get_submode_name(submode):
             submode_name.append(element.get('loc_name'))
         submode_name = ', '.join(submode_name)
         submode_name = f'Отключение {submode_name}'
-    return submode_name
+    return submode_name # ВЫХОД: str - название подрежима
 
 
 def transform_submodes(submodes):
@@ -87,7 +88,7 @@ def transform_submodes(submodes):
             'submode_name': submode_name
         }
         submodes_transformed.append(submode_dict)
-    return submodes_transformed
+    return submodes_transformed # ВЫХОД: List[Dict] - список словарей (подрежимов)
 
 
 if __name__ == "__main__":

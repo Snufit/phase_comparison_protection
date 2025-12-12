@@ -1,8 +1,7 @@
 from math import sqrt
 from typing import Callable, Dict, Tuple
 
-from calculation.models import (CalculationMeta, FaultCalculation,
-                                SettingsCalculation)
+from calculation.models import CalculationMeta, FaultCalculation, SettingsCalculation
 from core.models import Component, ProtectionHalfSet
 
 
@@ -13,14 +12,24 @@ class SettingsCalculationService:
         # Определяем словарь коэффициентов
         self.calculation_factors = calculation_factors or {}
 
-        self.voltage_transformer_factor = 5000
-
         # Определяем мета-данные расчета
         self.calculation_meta = calculation_meta
 
         # Определяем линию и полукомплекты защиты
         self.line = calculation_meta.line
         self.protection_half_sets = self.line.protection_half_sets.all()
+
+        # Используем параметры ТТ/ТН из линии напрямую
+        # Для ТТ: используем ratio из связанного трансформатора
+        self.current_transformer_ratio = self.line.ct.ratio if self.line.ct else 1000
+        # Для ТН: используем calculate_ratio с напряжением ЛЭП из PowerFactory
+        # (ratio в VoltageTransformer вычисляется на основе primary_voltage,
+        # но для использования с ЛЭП нужно использовать напряжение ЛЭП)
+        self.voltage_transformer_factor = (
+            self.line.vt.calculate_ratio(self.line.voltage_level)
+            if self.line.vt and self.line.voltage_level
+            else 5000
+        )
 
         # Коэффициент чувствительности токовых органов
         self.current_sensitivity_rate = 2
@@ -48,26 +57,60 @@ class SettingsCalculationService:
         calculation_factors: Dict[str, float],
         result_value: float,
     ) -> None:
+        """
+        Сохраняет результат расчета в БД с первичными и вторичными величинами.
+
+        Args:
+            protection_half_set: Полукомплект защиты
+            component: Орган защиты
+            calculation_factors: Расчетные коэффициенты
+            result_value: Результат расчета (в первичных величинах)
+        """
+        # Первичное значение - это результат расчета
+        primary_value = result_value
+
+        # Определяем тип органа для правильного перевода во вторичные величины
+        setting_designation = component.setting_designation
+
+        # Для токовых органов (IЛ, I2, DI1, DI2, K МАН) делим на коэффициент ТТ
+        if any(
+            prefix in setting_designation
+            for prefix in ["IЛ", "I2", "DI1", "DI2", "K МАН"]
+        ):
+            secondary_value = primary_value / self.current_transformer_ratio
+        # Для напряженческих органов (U2) делим на коэффициент ТН
+        elif "U2" in setting_designation:
+            secondary_value = primary_value / self.voltage_transformer_factor
+        # Для угла блокировки значения одинаковые
+        elif "УГОЛ" in setting_designation:
+            secondary_value = primary_value
+        else:
+            # По умолчанию считаем токовым органом
+            secondary_value = primary_value / self.current_transformer_ratio
+
         SettingsCalculation.objects.create(
             calculation_meta=self.calculation_meta,
             protection_half_set=protection_half_set,
             component=component,
             calculation_factors=calculation_factors,
-            result_value=result_value,
+            result_value=result_value,  # Оставляем для обратной совместимости
+            primary_value=primary_value,
+            secondary_value=secondary_value,
         )
 
     def get_calculation_function(self, component: Component) -> Callable[[], float]:
         calculation_function = self.CALCULATION_MAP.get(component.setting_designation)
         return calculation_function
 
-    def calculate_blocking_angle(self) -> float:
+    def calculate_blocking_angle(self) -> Tuple[float, Dict[str, float]]:
+        """Рассчитывает угол блокировки в зависимости от длины ЛЭП."""
         if self.line.length < 60:
             blocking_angle = 50
         elif 60 <= self.line.length < 150:
             blocking_angle = 60
         else:
             blocking_angle = 65
-        return blocking_angle
+        return blocking_angle, {}
 
     # refactor
     def calculate_manipulation_factor(self) -> Tuple[float, Dict[str, float]]:
@@ -91,8 +134,7 @@ class SettingsCalculationService:
                 manipulation_factors.append(manipulation_factor)
             elif fault_calculation.fault_type == "К(1)":
                 manipulation_factor = manipulation_grading_factor * (
-                    self.line.current_capacity
-                    / 1
+                    self.line.current_capacity / 1
                 )
                 manipulation_factors.append(manipulation_factor)
         max_manipulating_factor = max(manipulation_factors)
@@ -166,13 +208,18 @@ class SettingsCalculationService:
 
     # hardcode
     def calculate_u2_block(self) -> Tuple[float, Dict[str, float]]:
+        """Рассчитывает уставку блокировки по напряжению обратной последовательности."""
         u2_grading_factor = self.calculation_factors.get("u2_grading_factor", 1.3)
         u2_reset_factor = self.calculation_factors.get("u2_reset_factor", 0.9)
         u2_imbalance_voltage = self.calculation_factors.get("u2_imbalance_voltage", 1.5)
+
+        # Используем уже вычисленный коэффициент трансформации ТН
+        vt_ratio = self.voltage_transformer_factor
+
         u2_block_value = (
             u2_grading_factor
             / u2_reset_factor
-            * (u2_imbalance_voltage * self.voltage_transformer_factor)
+            * (u2_imbalance_voltage * vt_ratio)
             / 1000
         )
         calculation_factors = {

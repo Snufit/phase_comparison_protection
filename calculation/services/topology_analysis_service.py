@@ -9,13 +9,13 @@ class TopologyAnalysisService:
 
     def __init__(
         self,
-        protection_half_set: ProtectionHalfSet,
+        protection_half_set: ProtectionHalfSet, # Вход: полукомплект защиты
     ):
-        self.half_set = protection_half_set
+        self.half_set = protection_half_set # # Сохраняем объект для дальнейшего использования
 
-    def get_half_set_topology(self, app):
+    def get_half_set_topology(self, app): # Основной метод
         # Определяем ЛЭП и ПС полукомплекта
-        line_pf_name = self.half_set.line.pf_name
+        line_pf_name = self.half_set.line.pf_name 
         substation_pf_name = self.half_set.substation.pf_name
 
         # Находим ЛЭП и ПС в модели PowerFactory

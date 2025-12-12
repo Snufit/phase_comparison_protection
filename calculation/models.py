@@ -17,7 +17,10 @@ class CalculationMeta(models.Model):
         blank=True,
     )
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, null=True, blank=True
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,  # Временно nullable для миграции
     )
     calculation_number = models.PositiveIntegerField(
         verbose_name="Номер расчета", null=True, blank=True
@@ -44,9 +47,7 @@ class SettingsCalculation(models.Model):
     """Модель протокола расчета параметра настройки органа."""
 
     calculation_meta = models.ForeignKey(
-        CalculationMeta,
-        on_delete=models.CASCADE,
-        related_name="settings_calculations"
+        CalculationMeta, on_delete=models.CASCADE, related_name="settings_calculations"
     )
     protection_half_set = models.ForeignKey(
         ProtectionHalfSet,
@@ -54,12 +55,24 @@ class SettingsCalculation(models.Model):
         related_name="settings_calculations",
     )
     component = models.ForeignKey(
-        Component,
-        on_delete=models.CASCADE,
-        related_name="settings_calculations"
+        Component, on_delete=models.CASCADE, related_name="settings_calculations"
     )
     calculation_factors = models.JSONField(blank=True, null=True)
-    result_value = models.FloatField(verbose_name="Результат расчета")
+    result_value = models.FloatField(
+        verbose_name="Результат расчета",
+        null=True,  # Временно nullable для обратной совместимости
+        blank=True,
+    )
+    primary_value = models.FloatField(
+        verbose_name="Значение уставки в первичных величинах",
+        null=True,  # Временно nullable для миграции
+        blank=True,
+    )
+    secondary_value = models.FloatField(
+        verbose_name="Значение уставки во вторичных величинах",
+        null=True,  # Временно nullable для миграции
+        blank=True,
+    )
 
     class Meta:
         """Мета-данные модели CalculationData."""
@@ -71,19 +84,15 @@ class SettingsCalculation(models.Model):
 class FaultCalculation(models.Model):
     """Модель протокола расчета токов КЗ."""
 
-    calculation_meta = models.ForeignKey(CalculationMeta, on_delete=models.CASCADE, blank=True, null=True)
+    calculation_meta = models.ForeignKey(
+        CalculationMeta, on_delete=models.CASCADE, blank=True, null=True
+    )
     protection_half_set = models.ForeignKey(
-        ProtectionHalfSet,
-        on_delete=models.CASCADE,
-        related_name="fault_calculations"
+        ProtectionHalfSet, on_delete=models.CASCADE, related_name="fault_calculations"
     )
     fault_type = models.CharField(verbose_name="Вид КЗ", max_length=255)
-    fault_location = models.CharField(
-        verbose_name="Узел КЗ", max_length=255
-    )
-    network_topology = models.CharField(
-        verbose_name="Схема сети", max_length=255
-    )
+    fault_location = models.CharField(verbose_name="Узел КЗ", max_length=255)
+    network_topology = models.CharField(verbose_name="Схема сети", max_length=255)
     fault_values = models.JSONField()
 
     class Meta:
@@ -97,9 +106,9 @@ class SensitivityAnalysis(models.Model):
     """Модель анализа чувствительности."""
 
     STATUS_CHOICES = [
-        ('Нечувствительна', 'Нечувствительна'),
-        ('Низкая чувствительность', 'Низкая чувствительность'),
-        ('Чувствительность', 'Чувствительность')
+        ("Нечувствительна", "Нечувствительна"),
+        ("Низкая чувствительность", "Низкая чувствительность"),
+        ("Чувствительность", "Чувствительность"),
     ]
 
     settings_calculation = models.ForeignKey(
@@ -108,27 +117,23 @@ class SensitivityAnalysis(models.Model):
         related_name="sensitivity_analysis",
     )
     fault_calculation = models.ForeignKey(
-        FaultCalculation,
-        on_delete=models.CASCADE,
-        related_name="sensitivity_analysis"
+        FaultCalculation, on_delete=models.CASCADE, related_name="sensitivity_analysis"
     )
-    sensitivity_rate = models.FloatField(
-        verbose_name="Коэффициент чувствительности"
-    )
+    sensitivity_rate = models.FloatField(verbose_name="Коэффициент чувствительности")
     status = models.CharField(
-        verbose_name='Статус',
+        verbose_name="Статус",
         max_length=255,
         choices=STATUS_CHOICES,
-        default='Нечувствительна'
+        default="Нечувствительна",
     )
 
     def save(self, *args, **kwargs):
         if self.sensitivity_rate <= 1:
-            self.status = 'Нечувствительна'
+            self.status = "Нечувствительна"
         elif 1 < self.sensitivity_rate < 2:
-            self.status = 'Низкая чувствительность'
+            self.status = "Низкая чувствительность"
         else:
-            self.status = 'Чувствительна'
+            self.status = "Чувствительна"
         super().save(*args, **kwargs)
 
     class Meta:
@@ -144,13 +149,9 @@ def generate_calculation_number(sender, instance, **kwargs):
 
     if not instance.calculation_number:
         last_calculation = (
-            CalculationMeta.objects.all().order_by(
-                "calculation_number"
-            ).last()
+            CalculationMeta.objects.all().order_by("calculation_number").last()
         )
         if last_calculation:
-            instance.calculation_number = (
-                last_calculation.calculation_number + 1
-            )
+            instance.calculation_number = last_calculation.calculation_number + 1
         else:
             instance.calculation_number = 1

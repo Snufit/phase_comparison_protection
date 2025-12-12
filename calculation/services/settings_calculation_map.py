@@ -1,16 +1,17 @@
+# Конфигурационный словарь
 SETTINGS_CALCULATION_MAP = {
-    'IЛ БЛОК': {
-        'calculation_factors': {
-            'phase_current_diff_block_grading_factor': {
-                'label': 'Коэффициент отстройки',
-                'default_value': 1.3
+    'IЛ БЛОК': {    # НАЗВАНИЕ_ОРГАНА
+        'calculation_factors': {    # Коэффициенты расчета
+            'phase_current_diff_block_grading_factor': {    # НАЗВАНИЕ_КОЭФФИЦИЕНТА
+                'label': 'Коэффициент отстройки',   # Название для пользователя
+                'default_value': 1.3    # значение_по_умолчанию
             },
             'phase_current_diff_block_reset_factor': {
                 'label': 'Коэффициент возврата',
                 'default_value': 0.9
             }
         },
-        'calculation_function': '_calculate_phase_current_diff_block'
+        'calculation_function': '_calculate_phase_current_diff_block'    # Функция расчета
     },
     'IЛ ОТКЛ': {
         'calculation_factors': {

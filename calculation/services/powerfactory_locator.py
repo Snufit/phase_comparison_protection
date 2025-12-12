@@ -7,14 +7,35 @@ PROJECT_NAME: str = "ОДУ Сибири 1.0"
 
 sys.path.append(POWERFACTORY_PATH)
 
-try:
-    import powerfactory  # type: ignore
-except ModuleNotFoundError:
-    raise ModuleNotFoundError(
-        "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
-    )
-app = powerfactory.GetApplication()
-app.ActivateProject(PROJECT_NAME)
+# Lazy initialization - don't import powerfactory at module level
+_powerfactory_module = None
+_app = None
+
+
+def _get_powerfactory_app():
+    """
+    Ленивая инициализация PowerFactory.
+    Возвращает объект app или поднимает исключение, если PowerFactory недоступен.
+    """
+    global _powerfactory_module, _app
+
+    if _app is not None:
+        return _app
+
+    if _powerfactory_module is None:
+        try:
+            import powerfactory  # type: ignore
+
+            _powerfactory_module = powerfactory
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
+            )
+
+    _app = _powerfactory_module.GetApplication()
+    _app.ActivateProject(PROJECT_NAME)
+    return _app
+
 
 # Названия классов в PowerFactory
 PF_LINE_CLASS = "*.ElmBranch"
@@ -153,10 +174,12 @@ def get_terms_from_branch(app, branch_object):
     return list(terminals) if terminals else []
 
 
-def _get_line_end_substations(branch_object) -> List[Dict[str, Any]]:
+def _get_line_end_substations(branch_object, app=None) -> List[Dict[str, Any]]:
     """
     Возвращает список подстанций на концах ЛЭП с информацией о классе напряжения.
     """
+    if app is None:
+        app = _get_powerfactory_app()
     substations = []
 
     try:
@@ -202,10 +225,12 @@ def _get_line_end_substations(branch_object) -> List[Dict[str, Any]]:
     return substations
 
 
-def _get_main_substations_with_voltage(branch_object) -> List[Dict[str, Any]]:
+def _get_main_substations_with_voltage(branch_object, app=None) -> List[Dict[str, Any]]:
     """
     Возвращает подстанции на концах ЛЭП с информацией о классе напряжения.
     """
+    if app is None:
+        app = _get_powerfactory_app()
     substations = []
 
     try:
@@ -290,7 +315,7 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
     """
     try:
         # 1. Получаем ОСНОВНЫЕ подстанции текущей ЛЭП
-        main_substations = _get_main_substations_with_voltage(branch_object)
+        main_substations = _get_main_substations_with_voltage(branch_object, app)
         current_line_name = branch_object.GetAttribute("loc_name")
 
         print(f"🔍 Поиск параллельных линий для: {current_line_name}")
@@ -332,7 +357,7 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
                 if line == branch_object:
                     continue
 
-                candidate_substations = _get_main_substations_with_voltage(line)
+                candidate_substations = _get_main_substations_with_voltage(line, app)
                 if len(candidate_substations) != 2:
                     continue
 
@@ -441,8 +466,8 @@ def _has_branches(
     # Проверка 2: сравнение основных подстанций и всех подстанций на концах ЛЭП
     if check_substations:
         try:
-            main_substations = _get_main_substations_with_voltage(branch_object)
-            all_substations = _get_line_end_substations(branch_object)
+            main_substations = _get_main_substations_with_voltage(branch_object, app)
+            all_substations = _get_line_end_substations(branch_object, app)
 
             # Создаем множества для сравнения (по имени и напряжению)
             main_substations_set = {
@@ -599,8 +624,8 @@ def test_powerfactory_functions(app):
         print("У Артема все плохо")
 
 
-# Получаем список всех ElmBranch в модели
-branches = app.GetCalcRelevantObjects("*.ElmBranch")
+# Получаем список всех ElmBranch в модели (ленивая инициализация)
+# branches = app.GetCalcRelevantObjects("*.ElmBranch")  # Закомментировано для работы без PowerFactory
 
 
 def test_branch_functions(app, index: int):
@@ -632,12 +657,12 @@ def test_branch_functions(app, index: int):
 
     # --- тест 4 ---
     print("\n▶ Подстанции на концах ЛЭП:")
-    end_subs = _get_main_substations_with_voltage(branch)
+    end_subs = _get_main_substations_with_voltage(branch, app)
     print(end_subs)
 
     # --- тест 5 ---
     print("\n▶ Все подстанции:")
-    end_subs_and_tap = _get_line_end_substations(branch)
+    end_subs_and_tap = _get_line_end_substations(branch, app)
     print(end_subs_and_tap)
 
     # --- тест 6 ---
@@ -654,4 +679,4 @@ def test_branch_functions(app, index: int):
 # Использование
 # lines_info = get_all_lines_with_indexes(app)
 
-test_branch_functions(app, index=25)
+# test_branch_functions(app, index=25)  # Закомментировано для работы без PowerFactory

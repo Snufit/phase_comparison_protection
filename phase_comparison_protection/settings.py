@@ -27,7 +27,7 @@ SECRET_KEY = "django-insecure-vz0gol4zltqje_4^g8*py2l&1@4c(j6ysr$xak9w^#w=t%r*js
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1']
+ALLOWED_HOSTS = ["127.0.0.1"]
 
 
 # Application definition
@@ -83,7 +83,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "test",
         "USER": "postgres",
-        "PASSWORD": "123zxc",
+        "PASSWORD": "GP08070060",
         "HOST": "127.0.0.1",
         "PORT": "5432",
     }
@@ -135,10 +135,10 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-LOGIN_URL = '/'
-LOGIN_REDIRECT_URL = 'calculation/'
-LOGOUT_REDIRECT_URL = '/'
+LOGIN_URL = "/"
+LOGIN_REDIRECT_URL = "calculation/"
+LOGOUT_REDIRECT_URL = "/"
 
 MESSAGE_TAGS = {
-    message_constants.ERROR: 'danger',
+    message_constants.ERROR: "danger",
 }
