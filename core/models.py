@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import models
 
 
@@ -132,7 +134,7 @@ class CurrentTransformer(models.Model):
 
     def __str__(self):
         return (
-            f"{self.model_ct_pf_name} ({self.primary_current}/{self.secondary_current})"
+            f"{self.model_ct_pf_name}"
         )
 
     def calculate_ratio(self) -> float:
@@ -210,16 +212,16 @@ class VoltageTransformer(models.Model):
         verbose_name_plural = "Трансформаторы напряжения"
 
     def __str__(self):
-        connection_display = dict(self.CONNECTION_CHOICES).get(self.connection_type, "")
-        type_display = dict(self.TYPE_CHOICES).get(self.type, "")
-        return f"{self.model_vt_pf_name} ({self.primary_voltage} кВ, {connection_display}, {type_display})"
 
-    def calculate_ratio(self, line_voltage_kv: float = None) -> float:
+        return f"{self.model_vt_pf_name}"
+
+    def calculate_ratio(self, line_voltage_kv=None) -> float:
         """
         Вычисляет коэффициент трансформации ТН.
 
         Args:
-            line_voltage_kv: Напряжение ЛЭП в кВ. Если не указано, используется primary_voltage.
+            line_voltage_kv: Напряжение ЛЭП в кВ (может быть Decimal или float). 
+                           Если не указано, используется primary_voltage.
 
         Returns:
             float: Коэффициент трансформации ТН
@@ -227,7 +229,11 @@ class VoltageTransformer(models.Model):
         import math
 
         # Используем напряжение ЛЭП, если указано, иначе primary_voltage ТН
-        u_nom = line_voltage_kv if line_voltage_kv is not None else self.primary_voltage
+        # Конвертируем Decimal в float для вычислений
+        if line_voltage_kv is not None:
+            u_nom = float(line_voltage_kv)
+        else:
+            u_nom = self.primary_voltage
         sqrt3 = math.sqrt(3)
 
         if self.connection_type == self.CONNECTION_DELTA:
@@ -265,6 +271,12 @@ class Line(models.Model):
         blank=True,
         null=True,
     )
+    index_pf = models.IntegerField(
+        verbose_name="Индекс линии в PowerFactory",
+        null=True,
+        blank=True,
+        help_text="Индекс линии в списке всех линий PowerFactory (ElmBranch)",
+    )
     line_type = models.ForeignKey(
         LineType,
         on_delete=models.PROTECT,
@@ -274,9 +286,11 @@ class Line(models.Model):
         blank=True,
     )
     current_capacity = models.FloatField(verbose_name="ДДТН, А", default=2000)
-    length = models.FloatField(
+    length = models.DecimalField(
         verbose_name="Длина ЛЭП, км",
-        default=0.0,  # Значение по умолчанию для существующих записей
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),  # Значение по умолчанию для существующих записей
     )
     # Связи с трансформаторами
     ct = models.ForeignKey(
@@ -296,10 +310,62 @@ class Line(models.Model):
         blank=True,
     )
     # Напряжение ЛЭП (получается из PowerFactory)
-    voltage_level = models.FloatField(
+    voltage_level = models.DecimalField(
         verbose_name="Номинальное напряжение ЛЭП, кВ",
-        default=220.0,
+        max_digits=7,
+        decimal_places=2,
+        default=Decimal("0.00"),
         help_text="Номинальное напряжение ЛЭП, получаемое из PowerFactory",
+    )
+    # Сопротивления ЛЭП (получаются из PowerFactory)
+    r1 = models.DecimalField(
+        verbose_name="Сопротивление прямой последовательности, Ом",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Активное сопротивление прямой последовательности, получаемое из PowerFactory",
+    )
+    r0 = models.DecimalField(
+        verbose_name="Сопротивление нулевой последовательности, Ом",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Активное сопротивление нулевой последовательности, получаемое из PowerFactory",
+    )
+    x1 = models.DecimalField(
+        verbose_name="Реактивное сопротивление прямой последовательности, Ом",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Реактивное сопротивление прямой последовательности, получаемое из PowerFactory",
+    )
+    x0 = models.DecimalField(
+        verbose_name="Реактивное сопротивление нулевой последовательности, Ом",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Реактивное сопротивление нулевой последовательности, получаемое из PowerFactory",
+    )
+    # Полные сопротивления (вычисляются как sqrt(R² + X²))
+    z1 = models.DecimalField(
+        verbose_name="Полное сопротивление прямой последовательности, Ом",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Модуль полного сопротивления прямой последовательности (Z1 = sqrt(R1² + X1²))",
+    )
+    z0 = models.DecimalField(
+        verbose_name="Полное сопротивление нулевой последовательности, Ом",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Модуль полного сопротивления нулевой последовательности (Z0 = sqrt(R0² + X0²))",
     )
     branch_count = models.IntegerField(
         verbose_name="Количество ответвлений", null=True, blank=True, default=0
@@ -316,6 +382,20 @@ class Line(models.Model):
         verbose_name="Коэффициент смещения для ЛЭП", null=True, blank=True
     )
 
+    @property
+    def length_formatted(self) -> str:
+        """Возвращает длину с форматированием до 2 знаков после запятой."""
+        if self.length is not None:
+            return f"{self.length:.2f}"
+        return "0.00"
+
+    @property
+    def voltage_level_formatted(self) -> str:
+        """Возвращает напряжение с форматированием до 2 знаков после запятой."""
+        if self.voltage_level is not None:
+            return f"{self.voltage_level:.2f}"
+        return "0.00"
+
     class Meta:
         """Мета-данные модели Line."""
 
@@ -324,7 +404,7 @@ class Line(models.Model):
 
     def update_voltage_from_pf(self, app) -> None:
         """
-        Получает напряжение ЛЭП из PowerFactory и сохраняет в БД.
+        Получает напряжение и длину ЛЭП из PowerFactory и сохраняет в БД.
 
         Метод сам получает объект ЛЭП из PowerFactory по self.pf_name.
 
@@ -352,12 +432,114 @@ class Line(models.Model):
             line_terminals = pf_line.GetConnectedElements()
             if line_terminals:
                 voltage_level = line_terminals[0].GetUnom()
-                self.voltage_level = voltage_level
-                self.save()
+                if voltage_level is not None:
+                    self.voltage_level = Decimal(str(round(voltage_level, 2)))
+
+            # Получаем длину линии из атрибута length
+            try:
+                length = pf_line.GetAttribute("length")
+                if length is not None:
+                    self.length = Decimal(str(round(length, 2)))  # Округляем до 2 знаков после запятой
+            except Exception as e:
+                print(
+                    f"Не удалось получить длину для ЛЭП {self.dispatch_name}: {e}"
+                )
+
+            self.save()
         except Exception as e:
             # Логируем ошибку, но не прерываем выполнение
             print(
-                f"Ошибка при получении напряжения из PowerFactory для ЛЭП {self.dispatch_name}: {e}"
+                f"Ошибка при получении данных из PowerFactory для ЛЭП {self.dispatch_name}: {e}"
+            )
+
+    def update_branches_from_pf(self, app) -> None:
+        """
+        Определяет подстанции ответвлений и создает/обновляет записи LineBranch.
+
+        Логика определения:
+        - Получает все подстанции на концах ЛЭП (_get_line_end_substations)
+        - Получает основные подстанции (_get_main_substations_with_voltage)
+        - Подстанции ответвлений = все подстанции - основные подстанции
+
+        Args:
+            app: COM-объект PowerFactory
+        """
+        if not self.pf_name:
+            print(f"Для ЛЭП {self.dispatch_name} не указано pf_name")
+            return
+
+        try:
+            from calculation.services.powerfactory_locator import (
+                _get_line_end_substations,
+                _get_main_substations_with_voltage,
+            )
+
+            # Получаем объект ЛЭП из PowerFactory по имени
+            pf_lines = app.GetCalcRelevantObjects("*.ElmBranch")
+            pf_line = None
+            for line in pf_lines:
+                if line.GetAttribute("loc_name") == self.pf_name:
+                    pf_line = line
+                    break
+
+            if not pf_line:
+                print(f"ЛЭП '{self.pf_name}' не найдена в PowerFactory")
+                return
+
+            # Получаем все подстанции на концах ЛЭП
+            all_substations = _get_line_end_substations(pf_line, app)
+            # Получаем основные подстанции
+            main_substations = _get_main_substations_with_voltage(pf_line, app)
+
+            # Создаем множества для сравнения (по имени и напряжению)
+            main_substations_set = {
+                (sub["name"], sub["voltage_kv"]) for sub in main_substations
+            }
+            all_substations_set = {
+                (sub["name"], sub["voltage_kv"]) for sub in all_substations
+            }
+
+            # Подстанции ответвлений = все подстанции - основные подстанции
+            branch_substations_keys = all_substations_set - main_substations_set
+
+            # Создаем или обновляем записи LineBranch для каждой подстанции ответвления
+            for sub in all_substations:
+                key = (sub["name"], sub["voltage_kv"])
+                if key in branch_substations_keys:
+                    substation_name = sub["name"]
+                    
+                    # Находим или создаем подстанцию в БД
+                    substation, _ = Substation.objects.get_or_create(
+                        pf_name=substation_name
+                    )
+
+                    # Создаем или обновляем ответвление
+                    line_branch, created = LineBranch.objects.get_or_create(
+                        line=self,
+                        substation=substation,
+                        defaults={
+                            "pf_name_substation": substation_name,
+                            "is_active": True,
+                        },
+                    )
+
+                    # Обновляем имя подстанции, если оно изменилось
+                    if line_branch.pf_name_substation != substation_name:
+                        line_branch.pf_name_substation = substation_name
+                        line_branch.save()
+
+                    if created:
+                        print(
+                            f"Создано ответвление для ЛЭП {self.dispatch_name}: {substation_name}"
+                        )
+                    else:
+                        print(
+                            f"Обновлено ответвление для ЛЭП {self.dispatch_name}: {substation_name}"
+                        )
+
+        except Exception as e:
+            print(
+                f"Ошибка при определении ответвлений для ЛЭП {self.dispatch_name}: {e}"
             )
 
     def __str__(self):
@@ -377,28 +559,35 @@ class LineBranch(models.Model):
         related_name="branches",
         verbose_name="Основная ЛЭП",
     )
+    pf_name_line = models.CharField(
+        verbose_name="Имя ЛЭП в PowerFactory",
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Имя линии из PowerFactory (копия line.pf_name для удобства поиска)",
+    )
     substation = models.ForeignKey(
         "Substation",
         on_delete=models.CASCADE,
         related_name="line_branches",
         verbose_name="Подстанция",
+        null=True,  # Сделать опциональным
+        blank=True,  # Сделать опциональным
     )
-    dispatch_name = models.CharField(
-        verbose_name="Диспетчерское наименование ответвления",
+    pf_name_substation = models.CharField(
+        verbose_name="Подстанция ответвления",
         max_length=100,
-        unique=True,
         null=True,
         blank=True,
+        default="",
+        help_text="Имя подстанции ответвления из PowerFactory",
     )
-    pf_name = models.CharField(
-        verbose_name="Наименование в PowerFactory", max_length=100, unique=True
-    )
-    length = models.FloatField(verbose_name="Длина ответвления, км")
     is_active = models.BooleanField(verbose_name="Активно ли ответвление", default=True)
     protection_recommendation = models.TextField(
         verbose_name="Рекомендация по установке доп. комплекта защиты на ответвлении",
         null=True,
         blank=True,
+        default="Нет необходимости",
     )
 
     class Meta:
@@ -409,22 +598,26 @@ class LineBranch(models.Model):
 
     def __str__(self):
         """
-        :return: Диспетчерское наименование ответвления или pf_name.
+        :return: Имя подстанции ответвления.
         """
-        return self.dispatch_name or self.pf_name
+        # Используем диспетчерское наименование подстанции, если есть связь
+        if self.substation:
+            return self.substation.dispatch_name
+        # Иначе используем имя из PowerFactory
+        return self.pf_name_substation or "Ответвление без подстанции"
 
 
 class Substation(models.Model):
     """Модель подстанции."""
 
-    dispatch_name = models.CharField(
-        verbose_name="Диспетчерское наименование", max_length=100, unique=True
-    )
     pf_name = models.CharField(
         verbose_name="Наименование в PowerFactory",
         max_length=100,
-        blank=True,
+        unique=True,
         null=True,
+        blank=True,
+        default="",
+        help_text="Имя подстанции из PowerFactory",
     )
 
     class Meta:

@@ -235,9 +235,17 @@ def _get_main_substations_with_voltage(branch_object, app=None) -> List[Dict[str
 
     try:
         # Получаем конечные терминалы ветви
-        term0 = branch_object.GetAttribute("cTerm0")
-        term1 = branch_object.GetAttribute("cTerm1")
-        end_terms = [term0, term1]
+        term0_str = str(branch_object.GetAttribute("cTerm0")).strip()
+        term1_str = str(branch_object.GetAttribute("cTerm1")).strip()
+
+        # Удалить все пробелы
+        term0_clean = term0_str.replace(" ", "")
+        term1_clean = term1_str.replace(" ", "")
+
+        term0 = abs(int(term0_clean))
+        term1 = abs(int(term1_clean))
+
+        end_terms = [str(term0), str(term1)]
 
         # Получаем имена конечных терминалов
         end_term_names = []
@@ -318,8 +326,6 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
         main_substations = _get_main_substations_with_voltage(branch_object, app)
         current_line_name = branch_object.GetAttribute("loc_name")
 
-        print(f"🔍 Поиск параллельных линий для: {current_line_name}")
-        print(f"   Основные ПС с напряжением:")
         for sub in main_substations:
             print(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
 
@@ -337,13 +343,9 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
                 key=lambda x: (x["name"], x["voltage_kv"] or 0),
             )
         )
-        print(f"   Нормализованная пара:")
-        for sub in normalized_pair:
-            print(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
 
         # 2. Получаем все ЛЭП в модели
         all_lines = app.GetCalcRelevantObjects(PF_LINE_CLASS) or []
-        print(f"Всего ЛЭП в модели: {len(all_lines)}")
 
         parallel_count = 0
         found_parallels = []
@@ -379,24 +381,14 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
                     found_parallels.append(
                         {"name": line_name, "substations": candidate_substations}
                     )
-                    print(f"Найдена параллельная ЛЭП: {line_name}")
-                    for sub in candidate_substations:
-                        print(f"        - {sub['name']} ({sub['voltage_kv']} кВ)")
-                    print(f"Основные ПС: {candidate_substations}")
+
                     # return True
             except Exception as e:
                 print(f"Ошибка проверки ЛЭП {line_name}: {e}")
                 continue
         # 4. Анализируем результат
-        print(f"Итог: найдено {parallel_count} параллельных линий")
-        if found_parallels:
-            print(f"Параллельные линии:")
-            for parallel in found_parallels:
-                print(f"        - {parallel['name']}")
-
         # Считаем параллельной если найдена хотя бы одна параллельная линия
         is_parallel = parallel_count >= 1
-        print(f"Результат: {'ПАРАЛЛЕЛЬНАЯ' if is_parallel else 'ОДИНОЧНАЯ'}")
 
         return is_parallel
 
@@ -679,4 +671,5 @@ def test_branch_functions(app, index: int):
 # Использование
 # lines_info = get_all_lines_with_indexes(app)
 
-# test_branch_functions(app, index=25)  # Закомментировано для работы без PowerFactory
+#app = _get_powerfactory_app()
+#test_branch_functions(app, index=258)  # Закомментировано для работы без PowerFactory
