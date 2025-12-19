@@ -1,17 +1,53 @@
 from django import forms
 
-from core.models import Line, CurrentTransformer, VoltageTransformer
+from core.models import Line, CurrentTransformer, VoltageTransformer, LineType
 
 
 class LineSelectionForm(forms.Form):
-    """Форма выбора ЛЭП из выпадающего списка."""
+    """Форма выбора ЛЭП из выпадающего списка с фильтрами."""
 
+    line_type_filter = forms.ModelChoiceField(
+        queryset=LineType.objects.exclude(type_code='Неизвестно').order_by('type_code'),
+        label="Тип ЛЭП",
+        required=False, #false - не обязательное поле
+        empty_label="Все типы", # Первый пункт "Все типы"
+        widget=forms.Select(attrs={"class": "form-select", "id": "id_line_type_filter"}),
+    )
+    
+    voltage_filter = forms.ChoiceField(
+        label="Напряжение, кВ",
+        required=False, # false - не обязательное поле 
+        choices=[('', 'Все напряжения')],
+        widget=forms.Select(attrs={"class": "form-select", "id": "id_voltage_filter"}),
+    )
+    
     line = forms.ModelChoiceField(
-        queryset=Line.objects.all(),
+        queryset=Line.objects.all().order_by('dispatch_name'),
         label="Защищаемая ЛЭП",
         empty_label="ЛЭП не выбрана",
-        widget=forms.Select(attrs={"class": "form-select"}),
+        widget=forms.Select(attrs={"class": "form-select", "id": "id_line"}),
     )
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Динамически заполняем список напряжений
+        voltages = Line.objects.exclude(voltage_level__isnull=True).exclude(
+            voltage_level=0
+        ).values_list('voltage_level', flat=True).distinct().order_by('voltage_level')
+        
+        # Формируем список напряжений без опции "Все напряжения" (она будет только как placeholder)
+        voltage_choices = []
+        # Форматируем напряжение без десятичных знаков (если целое число)
+        for v in voltages:
+            # Преобразуем Decimal в float, затем проверяем, целое ли это число
+            v_float = float(v)
+            if v_float == int(v_float):
+                # Целое число - отображаем без десятичных знаков
+                voltage_choices.append((str(v), f'{int(v_float)} кВ'))
+            else:
+                # Дробное число - отображаем как есть
+                voltage_choices.append((str(v), f'{v} кВ'))
+        self.fields['voltage_filter'].choices = voltage_choices
     ct = forms.ModelChoiceField(
         queryset=CurrentTransformer.objects.all(),
         label="Трансформатор тока (ТТ)",

@@ -18,12 +18,90 @@
 
     <form method="post">
         {% csrf_token %}
-        {{ line_form.as_p }}
+        <div class="row mb-3">
+            <div class="col-md-4">
+                {{ line_form.line_type_filter.label_tag }} <!-- Метка "Тип ЛЭП" -->
+                {{ line_form.line_type_filter }} <!-- Выпадающий список -->
+            </div>
+            <div class="col-md-4">
+                {{ line_form.voltage_filter.label_tag }} <!-- Метка "Напряжение, кВ" -->
+                {{ line_form.voltage_filter }} <!-- Выпадающий список -->
+            </div>
+        </div>
+        <div class="mb-3">
+            {{ line_form.line.label_tag }}
+            {{ line_form.line }} <!-- Список ЛЭП (будет обновляться) -->
+        </div>
+        <div class="mb-3">
+            {{ line_form.ct.label_tag }}
+            {{ line_form.ct }}
+        </div>
+        <div class="mb-3">
+            {{ line_form.vt.label_tag }}
+            {{ line_form.vt }}
+        </div>
         <script>
             $(document).ready(function () {
-                $('.form-select').select2({
-                    placeholder: 'Выберите ЛЭП',
+                // Инициализация Select2 для поля выбора ЛЭП
+                $('#id_line').select2({
+                    placeholder: 'Выберите...',
                     width: '100%',
+                    allowClear: true,
+                });
+
+                // Инициализация Select2 для фильтра напряжения
+                $('#id_voltage_filter').select2({
+                    placeholder: 'Все напряжения',
+                    width: '100%',
+                    allowClear: true,
+                    minimumResultsForSearch: Infinity  // Отключаем поиск для небольшого списка
+                });
+
+                // Инициализация Select2 для фильтра типа ЛЭП
+                $('#id_line_type_filter').select2({
+                    placeholder: 'Все типы',
+                    width: '100%',
+                    allowClear: true,
+                    minimumResultsForSearch: Infinity
+                });
+
+                // Функция для обновления списка ЛЭП
+                function updateLineList() {
+                    const lineTypeId = $('#id_line_type_filter').val();
+                    const voltage = $('#id_voltage_filter').val();
+
+                    $.ajax({
+                        url: '{% url "filter_lines_ajax" %}',
+                        type: 'GET',
+                        data: {
+                            'line_type_id': lineTypeId || '',
+                            'voltage': voltage || ''  // Если пусто, отправляем пустую строку (не фильтруем)
+                        },
+                        success: function (response) {
+                            const lineSelect = $('#id_line');
+                            lineSelect.empty();
+                            lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+
+                            response.lines.forEach(function (line) {
+                                lineSelect.append(
+                                    $('<option></option>')
+                                        .attr('value', line.id)
+                                        .text(line.name)
+                                );
+                            });
+
+                            // Обновляем Select2
+                            lineSelect.trigger('change');
+                        },
+                        error: function () {
+                            console.error('Ошибка при загрузке ЛЭП');
+                        }
+                    });
+                }
+
+                // Обработчики изменения фильтров
+                $('#id_line_type_filter, #id_voltage_filter').on('change', function () {
+                    updateLineList();
                 });
             });
         </script>
@@ -57,16 +135,16 @@
                     </p>
                     <p><strong>Сопротивление прямой последовательности, Ом: </strong>
                         {% if line.r1 is not None and line.x1 is not None %}
-                            {{ line.r1|floatformat:2 }}{% if line.r1 >= 0 %}{% else %}{% endif %}+j{{ line.x1|floatformat:2 }}
+                        {{ line.r1|floatformat:2 }}+j{{ line.x1|floatformat:2 }}
                         {% else %}
-                            &mdash;
+                        &mdash;
                         {% endif %}
                     </p>
                     <p><strong>Сопротивление нулевой последовательности, Ом: </strong>
                         {% if line.r0 is not None and line.x0 is not None %}
-                            {{ line.r0|floatformat:2 }}{% if line.r0 >= 0 %}{% else %}{% endif %}+j{{ line.x0|floatformat:2 }}
+                        {{ line.r0|floatformat:2 }}+j{{ line.x0|floatformat:2 }}
                         {% else %}
-                            &mdash;
+                        &mdash;
                         {% endif %}
                     </p>
                 </div>
@@ -82,7 +160,11 @@
                         {{ protection_device.device_model }}
                     </p>
                     <p><strong>Производитель: </strong>
-                        {{ protection_device.manufacturer }}
+                        {% if protection_device.manufacturer_fk %}
+                        {{ protection_device.manufacturer_fk.name }}
+                        {% else %}
+                        &mdash;
+                        {% endif %}
                     </p>
                 </div>
             </div>

@@ -1,11 +1,56 @@
+import hashlib
+import json
 from itertools import combinations
-from typing import List, Any
+from typing import List, Any, Optional
+
+from core.models import ProtectionHalfSet
 
 
 def generate_half_set_submodes(
-    half_set_topology, # топология полукомплекта
-    half_set_submodes_data # параметры генерации подрежимов
+    half_set_topology,  # топология полукомплекта
+    half_set_submodes_data,  # параметры генерации подрежимов
+    protection_half_set: Optional[ProtectionHalfSet] = None,  # Новый параметр
+    use_cache: bool = True,  # Новый параметр
 ):
+    """
+    Генерирует подрежимы с возможностью кэширования в БД.
+    
+    Args:
+        half_set_topology: Список элементов топологии
+        half_set_submodes_data: Параметры генерации подрежимов
+        protection_half_set: Полукомплект защиты (для кэширования)
+        use_cache: Использовать кэш из БД
+    
+    Returns:
+        List[Dict] - список подрежимов
+    """
+    from calculation.models import HalfSetSubmode
+    
+    # Если есть полукомплект и включено кэширование
+    if protection_half_set and use_cache:
+        # Вычисляем хэш параметров генерации
+        params_hash = _calculate_params_hash(half_set_submodes_data)
+        
+        # Проверяем, есть ли уже подрежимы с такими параметрами
+        existing_submodes = HalfSetSubmode.objects.filter(
+            protection_half_set=protection_half_set
+        )
+        
+        # Проверяем, совпадают ли параметры генерации
+        for submode in existing_submodes:
+            if submode.generation_params:
+                existing_hash = submode.generation_params.get('hash')
+                if existing_hash == params_hash:
+                    # Возвращаем из БД
+                    return [
+                        {
+                            'submode_name': s.submode_name,
+                            'submode_elements': s.submode_elements
+                        }
+                        for s in existing_submodes
+                    ]
+    
+    # Генерируем подрежимы (старая логика)
     # Подсчитать количество элементов каждого типа:
     total_lines_number = get_elements_number_by_type(
         half_set_topology, 'ЛЭП'
@@ -29,8 +74,50 @@ def generate_half_set_submodes(
         submodes, max_lines, max_autotransformers
     )
     submodes_transformed = transform_submodes(valid_submodes)
-
+    
+    # Сохраняем в БД, если указан полукомплект
+    if protection_half_set:
+        _save_submodes_to_db(
+            protection_half_set,
+            submodes_transformed,
+            half_set_submodes_data
+        )
+    
     return submodes_transformed
+
+
+def _calculate_params_hash(params: dict) -> str:
+    """Вычисляет хэш параметров генерации."""
+    params_json = json.dumps(params, sort_keys=True)
+    return hashlib.md5(params_json.encode()).hexdigest()
+
+
+def _save_submodes_to_db(
+    protection_half_set: ProtectionHalfSet,
+    submodes: List[dict],
+    generation_params: dict
+) -> None:
+    """Сохраняет подрежимы в БД."""
+    from calculation.models import HalfSetSubmode
+    
+    params_hash = _calculate_params_hash(generation_params)
+    
+    # Удаляем старые подрежимы для этого полукомплекта
+    HalfSetSubmode.objects.filter(
+        protection_half_set=protection_half_set
+    ).delete()
+    
+    # Создаем новые записи
+    for submode in submodes:
+        HalfSetSubmode.objects.create(
+            protection_half_set=protection_half_set,
+            submode_name=submode['submode_name'],
+            submode_elements=submode['submode_elements'],
+            generation_params={
+                'params': generation_params,
+                'hash': params_hash
+            }
+        )
 
 
 def generate_submodes(half_set_topology: List[Any], min_outages, max_outages):

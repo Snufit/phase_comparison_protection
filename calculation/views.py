@@ -5,7 +5,9 @@ from openpyxl.styles import Font
 from django.core.paginator import Paginator
 from django.shortcuts import redirect, render
 from django.views import View
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.http import require_http_methods
+import json
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
@@ -92,10 +94,39 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         line_data = request.session.get("line_data")
 
         # Начальные значения для формы подрежимов
+        # Пытаемся получить топологию из сессии или БД
         half_set1_topology = request.session.get("half_set1_topology")
         half_set2_topology = request.session.get("half_set2_topology")
-        half_set1_topology_display = request.session.get("half_set1_topology_display")
-        half_set2_topology_display = request.session.get("half_set2_topology_display")
+        
+        # Если нет в сессии, пытаемся получить из БД
+        if not half_set1_topology and half_set1:
+            try:
+                topology_service1 = TopologyAnalysisService(half_set1)
+                half_set1_topology = topology_service1.get_half_set_topology(app=None, force_refresh=False)
+                request.session["half_set1_topology"] = half_set1_topology
+            except (ModuleNotFoundError, RuntimeError):
+                pass
+        
+        if not half_set2_topology and half_set2:
+            try:
+                topology_service2 = TopologyAnalysisService(half_set2)
+                half_set2_topology = topology_service2.get_half_set_topology(app=None, force_refresh=False)
+                request.session["half_set2_topology"] = half_set2_topology
+            except (ModuleNotFoundError, RuntimeError):
+                pass
+        
+        # Преобразуем топологии для отображения, если они есть
+        if half_set1_topology:
+            half_set1_topology_display = self.process_half_set_topology(half_set1_topology)
+            request.session["half_set1_topology_display"] = half_set1_topology_display
+        else:
+            half_set1_topology_display = request.session.get("half_set1_topology_display")
+        
+        if half_set2_topology:
+            half_set2_topology_display = self.process_half_set_topology(half_set2_topology)
+            request.session["half_set2_topology_display"] = half_set2_topology_display
+        else:
+            half_set2_topology_display = request.session.get("half_set2_topology_display")
         if (
             half_set1_topology
             and half_set2_topology
@@ -214,10 +245,18 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
                 # Выполняем анализ топологии прилегающей
                 # сети для каждого полукомплекта
+                # Сначала пытаемся получить из БД, если нет - из PowerFactory
                 topology_service1 = TopologyAnalysisService(half_set1)
                 topology_service2 = TopologyAnalysisService(half_set2)
-                half_set1_topology = topology_service1.get_half_set_topology(app)
-                half_set2_topology = topology_service2.get_half_set_topology(app)
+                
+                # Пытаемся получить топологию из БД (без подключения к PF)
+                try:
+                    half_set1_topology = topology_service1.get_half_set_topology(app=None, force_refresh=False)
+                    half_set2_topology = topology_service2.get_half_set_topology(app=None, force_refresh=False)
+                except (ModuleNotFoundError, RuntimeError):
+                    # Если нет в БД или PowerFactory недоступен, используем переданный app
+                    half_set1_topology = topology_service1.get_half_set_topology(app=app, force_refresh=False)
+                    half_set2_topology = topology_service2.get_half_set_topology(app=app, force_refresh=False)
 
                 # Освобождаем COM-объект
                 # print(app.GetAttributes())
@@ -262,11 +301,29 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             half_set1_topology = request.session.get("half_set1_topology")
             half_set2_topology = request.session.get("half_set2_topology")
 
+            # Получаем полукомплекты из сессии
+            line_id = request.session.get("line_id")
+            if line_id:
+                from core.models import Line
+                line = Line.objects.get(id=line_id)
+                protection_half_sets = line.protection_half_sets.all()
+                half_set1 = protection_half_sets[0] if len(protection_half_sets) > 0 else None
+                half_set2 = protection_half_sets[1] if len(protection_half_sets) > 1 else None
+            else:
+                half_set1 = None
+                half_set2 = None
+            
             half_set1_submodes = generate_half_set_submodes(
-                half_set1_topology, half_set1_submodes_data
+                half_set1_topology, 
+                half_set1_submodes_data,
+                protection_half_set=half_set1,
+                use_cache=True
             )
             half_set2_submodes = generate_half_set_submodes(
-                half_set2_topology, half_set2_submodes_data
+                half_set2_topology, 
+                half_set2_submodes_data,
+                protection_half_set=half_set2,
+                use_cache=True
             )
 
             print(half_set1_submodes)
@@ -343,6 +400,34 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             elif element_type == "АТ":
                 half_set_topology_display["АТ"].append(loc_name)
         return half_set_topology_display
+
+
+@require_http_methods(["GET"])
+def filter_lines_ajax(request):
+    """AJAX endpoint для фильтрации ЛЭП по типу и напряжению."""
+    from decimal import Decimal
+    
+    line_type_id = request.GET.get('line_type_id')
+    voltage = request.GET.get('voltage')
+    
+    queryset = Line.objects.all().order_by('dispatch_name')
+    
+    # Фильтруем по типу
+    if line_type_id:
+        queryset = queryset.filter(line_type_id=line_type_id)
+    
+    # Фильтруем по напряжению (если пустое значение - не фильтруем, показываем все)
+    if voltage:
+        try:
+            voltage_decimal = Decimal(voltage)
+            queryset = queryset.filter(voltage_level=voltage_decimal)
+        except (ValueError, TypeError, Exception):
+            pass
+    
+    # Формируем список для JSON
+    lines = [{'id': line.id, 'name': line.dispatch_name} for line in queryset]
+    
+    return JsonResponse({'lines': lines})
 
 
 class TestView(View):

@@ -26,7 +26,7 @@ class LineType(models.Model):
 class MethodologyDocument(models.Model):
     """Модель документа методики расчета."""
 
-    methodology_url = models.CharField(
+    name_file = models.CharField(
         verbose_name="URL документа с методикой", max_length=255, unique=True
     )
     created_at = models.DateTimeField(
@@ -44,9 +44,9 @@ class MethodologyDocument(models.Model):
 
     def __str__(self):
         """
-        :return: URL документа методики.
+        :return: Название файла документа методики.
         """
-        return self.methodology_url
+        return self.name_file
 
 
 class Manufacturer(models.Model):
@@ -54,14 +54,6 @@ class Manufacturer(models.Model):
 
     name = models.CharField(
         verbose_name="Название производителя", max_length=150, unique=True
-    )
-    methodology = models.ForeignKey(
-        MethodologyDocument,
-        on_delete=models.SET_NULL,  # Если методика удаляется, то у производителя не проставляется методика
-        related_name="manufacturers",
-        null=True,
-        blank=True,
-        verbose_name="Методика производителя",
     )
 
     class Meta:
@@ -600,9 +592,9 @@ class LineBranch(models.Model):
         """
         :return: Имя подстанции ответвления.
         """
-        # Используем диспетчерское наименование подстанции, если есть связь
+        # Используем наименование подстанции из PowerFactory, если есть связь
         if self.substation:
-            return self.substation.dispatch_name
+            return str(self.substation)
         # Иначе используем имя из PowerFactory
         return self.pf_name_substation or "Ответвление без подстанции"
 
@@ -628,10 +620,9 @@ class Substation(models.Model):
 
     def __str__(self):
         """
-        :return: Диспетчерское наименование подстанции.
+        :return: Наименование подстанции в PowerFactory.
         """
-
-        return self.dispatch_name
+        return self.pf_name or f"Подстанция #{self.id}"
 
 
 class Component(models.Model):
@@ -716,12 +707,6 @@ class ProtectionDevice(models.Model):
     device_model = models.CharField(
         verbose_name="Модель устройства", max_length=100, unique=True
     )
-    manufacturer = models.CharField(
-        verbose_name="Производитель (старое поле)",
-        max_length=100,
-        blank=True,
-        null=True,
-    )
     manufacturer_fk = models.ForeignKey(
         Manufacturer,
         on_delete=models.PROTECT,
@@ -729,6 +714,15 @@ class ProtectionDevice(models.Model):
         verbose_name="Производитель",
         null=True,  # Временно nullable для миграции
         blank=True,
+    )
+    methodology = models.ForeignKey(
+        MethodologyDocument,
+        on_delete=models.SET_NULL,
+        related_name="protection_devices",
+        verbose_name="Методика расчета для устройства",
+        null=True,
+        blank=True,
+        help_text="Основная методика расчета для данной модели устройства",
     )
     components = models.ManyToManyField(
         Component, verbose_name="Органы ДФЗ", related_name="protection_devices"
@@ -770,7 +764,55 @@ class ProtectionHalfSet(models.Model):
 
     def __str__(self):
         """
-        :return: Диспетчерское наименование полукомплекта ДФЗ.
+        :return: Наименование подстанции полукомплекта ДФЗ.
         """
+        return str(self.substation) if self.substation else f"Полукомплект #{self.id}"
 
-        return self.substation.dispatch_name
+
+class HalfSetTopology(models.Model):
+    """Модель для хранения топологии полукомплекта защиты."""
+
+    protection_half_set = models.OneToOneField(
+        ProtectionHalfSet,
+        on_delete=models.CASCADE,
+        related_name="topology",
+        verbose_name="Полукомплект защиты",
+    )
+
+    # JSON поле для хранения топологии
+    topology_data = models.JSONField(
+        verbose_name="Данные топологии",
+        help_text="Список элементов топологии (ЛЭП и АТ) в формате JSON",
+    )
+
+    # Метаданные для контроля актуальности
+    voltage_level = models.DecimalField(
+        verbose_name="Класс напряжения, кВ",
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+
+    last_updated = models.DateTimeField(
+        verbose_name="Дата последнего обновления",
+        auto_now=True,
+    )
+
+    # Хэш для быстрой проверки изменений
+    topology_hash = models.CharField(
+        max_length=64,
+        verbose_name="Хэш топологии",
+        help_text="MD5 хэш для быстрой проверки изменений",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        """Мета-данные модели HalfSetTopology."""
+
+        verbose_name = "Топология полукомплекта"
+        verbose_name_plural = "Топологии полукомплектов"
+
+    def __str__(self):
+        return f"Топология {self.protection_half_set}"

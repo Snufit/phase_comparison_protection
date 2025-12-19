@@ -143,6 +143,52 @@ class SensitivityAnalysis(models.Model):
         verbose_name_plural = "Анализ чувствительности"
 
 
+class HalfSetSubmode(models.Model):
+    """Модель для хранения подрежима полукомплекта."""
+
+    protection_half_set = models.ForeignKey(
+        ProtectionHalfSet,
+        on_delete=models.CASCADE,
+        related_name="submodes",
+        verbose_name="Полукомплект защиты",
+    )
+
+    submode_name = models.CharField(
+        max_length=255,
+        verbose_name="Название подрежима",
+    )
+
+    # JSON поле для хранения элементов подрежима
+    submode_elements = models.JSONField(
+        verbose_name="Элементы подрежима",
+        help_text="Список full_name элементов в формате JSON",
+    )
+
+    # Параметры генерации, при которых был создан этот подрежим
+    generation_params = models.JSONField(
+        verbose_name="Параметры генерации",
+        help_text="Параметры, при которых был сгенерирован подрежим",
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        verbose_name="Дата создания",
+        auto_now_add=True,
+    )
+
+    class Meta:
+        """Мета-данные модели HalfSetSubmode."""
+
+        verbose_name = "Подрежим полукомплекта"
+        verbose_name_plural = "Подрежимы полукомплектов"
+        # Уникальность: один полукомплект + одно название подрежима
+        unique_together = [("protection_half_set", "submode_name")]
+
+    def __str__(self):
+        return f"{self.protection_half_set} - {self.submode_name}"
+
+
 @receiver(pre_save, sender=CalculationMeta)
 def generate_calculation_number(sender, instance, **kwargs):
     """Генерация номера расчета перед сохранением."""

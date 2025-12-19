@@ -42,5 +42,10 @@ urlpatterns = [
         'test/',
         views.TestView.as_view(),
         name='test'
+    ),
+    path(
+        'filter-lines/',
+        views.filter_lines_ajax,
+        name='filter_lines_ajax'
     )
 ]
