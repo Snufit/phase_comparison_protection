@@ -52,14 +52,14 @@ class LineSelectionForm(forms.Form):
         queryset=CurrentTransformer.objects.all(),
         label="Трансформатор тока (ТТ)",
         empty_label="ТТ не выбран",
-        required=False,
+        required=True,  # Обязательное поле
         widget=forms.Select(attrs={"class": "form-select"}),
     )
     vt = forms.ModelChoiceField(
         queryset=VoltageTransformer.objects.all(),
         label="Трансформатор напряжения (ТН)",
         empty_label="ТН не выбран",
-        required=False,
+        required=True,  # Обязательное поле
         widget=forms.Select(attrs={"class": "form-select"}),
     )
 

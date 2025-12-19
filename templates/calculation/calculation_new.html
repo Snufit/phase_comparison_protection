@@ -19,11 +19,11 @@
     <form method="post">
         {% csrf_token %}
         <div class="row mb-3">
-            <div class="col-md-4">
+            <div class="col-md-6">
                 {{ line_form.line_type_filter.label_tag }} <!-- Метка "Тип ЛЭП" -->
                 {{ line_form.line_type_filter }} <!-- Выпадающий список -->
             </div>
-            <div class="col-md-4">
+            <div class="col-md-6">
                 {{ line_form.voltage_filter.label_tag }} <!-- Метка "Напряжение, кВ" -->
                 {{ line_form.voltage_filter }} <!-- Выпадающий список -->
             </div>
@@ -32,13 +32,15 @@
             {{ line_form.line.label_tag }}
             {{ line_form.line }} <!-- Список ЛЭП (будет обновляться) -->
         </div>
-        <div class="mb-3">
-            {{ line_form.ct.label_tag }}
-            {{ line_form.ct }}
-        </div>
-        <div class="mb-3">
-            {{ line_form.vt.label_tag }}
-            {{ line_form.vt }}
+        <div class="row mb-3">
+            <div class="col-md-6">
+                {{ line_form.ct.label_tag }}
+                {{ line_form.ct }}
+            </div>
+            <div class="col-md-6">
+                {{ line_form.vt.label_tag }}
+                {{ line_form.vt }}
+            </div>
         </div>
         <script>
             $(document).ready(function () {
@@ -50,18 +52,37 @@
                 });
 
                 // Инициализация Select2 для фильтра напряжения
+                // Очищаем значение перед инициализацией, чтобы не было автоматического выбора
+                $('#id_voltage_filter').val(null).trigger('change');
                 $('#id_voltage_filter').select2({
                     placeholder: 'Все напряжения',
                     width: '100%',
                     allowClear: true,
                     minimumResultsForSearch: Infinity  // Отключаем поиск для небольшого списка
                 });
+                // Убеждаемся, что значение пустое после инициализации
+                $('#id_voltage_filter').val(null).trigger('change');
 
                 // Инициализация Select2 для фильтра типа ЛЭП
                 $('#id_line_type_filter').select2({
                     placeholder: 'Все типы',
                     width: '100%',
                     allowClear: true,
+                    minimumResultsForSearch: Infinity
+                });
+                // Инициализация Select2 для поля ТТ
+                $('#id_ct').select2({
+                    placeholder: 'Выберите ТТ...',
+                    width: '100%',
+                    allowClear: false,  // Обязательное поле, нельзя очистить
+                    minimumResultsForSearch: Infinity
+                });
+
+                // Инициализация Select2 для поля ТН
+                $('#id_vt').select2({
+                    placeholder: 'Выберите ТН...',
+                    width: '100%',
+                    allowClear: false,  // Обязательное поле, нельзя очистить
                     minimumResultsForSearch: Infinity
                 });
 
