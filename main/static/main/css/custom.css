@@ -52,6 +52,51 @@
     right: 8px !important;
 }
 
+/* Стили для кнопки очистки (крестик) Select2 */
+.select2-container--default .select2-selection--single .select2-selection__clear {
+    cursor: pointer !important;
+    float: right !important;
+    margin-right: 28px !important;
+    width: 16px !important;
+    height: 38px !important;
+    position: relative !important;
+    color: transparent !important;
+    font-size: 0 !important;
+    line-height: 38px !important;
+    text-align: center !important;
+}
+
+/* Создаем красивый крестик через псевдоэлементы */
+.select2-container--default .select2-selection--single .select2-selection__clear::before,
+.select2-container--default .select2-selection--single .select2-selection__clear::after {
+    content: '' !important;
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    width: 12px !important;
+    height: 1.5px !important;
+    background-color: #adb5bd !important;
+    transition: background-color 0.2s ease-in-out, transform 0.2s ease-in-out !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__clear::before {
+    transform: translate(-50%, -50%) rotate(45deg) !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__clear::after {
+    transform: translate(-50%, -50%) rotate(-45deg) !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__clear:hover::before {
+    background-color: #dc3545 !important;
+    transform: translate(-50%, -50%) rotate(45deg) scale(1.15) !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__clear:hover::after {
+    background-color: #dc3545 !important;
+    transform: translate(-50%, -50%) rotate(-45deg) scale(1.15) !important;
+}
+
 .select2-container--default.select2-container--focus .select2-selection--single,
 .select2-container--default.select2-container--open .select2-selection--single {
     border-color: #86b7fe !important;
