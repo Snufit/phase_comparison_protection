@@ -23,14 +23,14 @@ def _get_powerfactory_app():
         return _app
 
     if _powerfactory_module is None:
-        try:
-            import powerfactory  # type: ignore
+try:
+    import powerfactory  # type: ignore
 
             _powerfactory_module = powerfactory
-        except ModuleNotFoundError:
-            raise ModuleNotFoundError(
-                "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
-            )
+except ModuleNotFoundError:
+    raise ModuleNotFoundError(
+        "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
+    )
 
     _app = _powerfactory_module.GetApplication()
     _app.ActivateProject(PROJECT_NAME)
@@ -242,8 +242,17 @@ def _get_main_substations_with_voltage(branch_object, app=None) -> List[Dict[str
         term0_clean = term0_str.replace(" ", "")
         term1_clean = term1_str.replace(" ", "")
 
-        term0 = abs(int(term0_clean))
-        term1 = abs(int(term1_clean))
+        # Проверяем, что строки не пустые перед преобразованием в int
+        if not term0_clean or not term1_clean:
+            print(f"Предупреждение: пустые терминалы для ветви {branch_object.GetAttribute('loc_name')}")
+            return []
+        
+        try:
+            term0 = abs(int(term0_clean))
+            term1 = abs(int(term1_clean))
+        except ValueError as e:
+            print(f"Ошибка преобразования терминалов в int: term0='{term0_clean}', term1='{term1_clean}', ошибка: {e}")
+            return []
 
         end_terms = [str(term0), str(term1)]
 
@@ -329,9 +338,18 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
         for sub in main_substations:
             print(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
 
-        if len(main_substations) != 2:
-            print(f"У ЛЭП должно быть 2 ПС, а найдено: {len(main_substations)}")
+        # Некоторые линии могут иметь одну подстанцию (тупиковые линии)
+        # Это не всегда ошибка, но для ДФЗ обычно нужно 2 подстанции
+        if len(main_substations) < 1:
+            print(f"У ЛЭП не найдено основных подстанций")
             return False
+        elif len(main_substations) == 1:
+            print(f"У ЛЭП найдена только 1 ПС (возможно, тупиковая линия): {main_substations[0]['name']}")
+            # Не возвращаем False, так как это может быть нормально
+        elif len(main_substations) > 2:
+            print(f"У ЛЭП найдено {len(main_substations)} ПС вместо 2")
+            # Используем первые 2 подстанции
+            main_substations = main_substations[:2]
 
         # Нормализуем с учетом напряжения (только name и voltage_kv, без terminal_name)
         normalized_pair = tuple(
