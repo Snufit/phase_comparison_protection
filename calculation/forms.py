@@ -20,7 +20,7 @@ class LineSelectionForm(forms.Form):
         choices=[('', 'Все напряжения')],
         widget=forms.Select(attrs={"class": "form-select", "id": "id_voltage_filter"}),
     )
-    
+
     line = forms.ModelChoiceField(
         queryset=Line.objects.all().order_by('dispatch_name'),
         label="Защищаемая ЛЭП",
@@ -29,11 +29,26 @@ class LineSelectionForm(forms.Form):
     )
     
     def __init__(self, *args, **kwargs):
+        project_name = kwargs.pop('project_name', None)
         super().__init__(*args, **kwargs)
-        # Динамически заполняем список напряжений
-        voltages = Line.objects.exclude(voltage_level__isnull=True).exclude(
+        
+        # Фильтруем линии по проекту, если проект указан
+        if project_name:
+            queryset = Line.objects.filter(
+                project_name=project_name
+            ).order_by('dispatch_name')
+            self.fields['line'].queryset = queryset
+        else:
+            # Если проект не указан, показываем все линии (для обратной совместимости)
+            self.fields['line'].queryset = Line.objects.all().order_by('dispatch_name')
+        
+        # Динамически заполняем список напряжений для выбранного проекта
+        voltage_queryset = Line.objects.exclude(voltage_level__isnull=True).exclude(
             voltage_level=0
-        ).values_list('voltage_level', flat=True).distinct().order_by('voltage_level')
+        )
+        if project_name:
+            voltage_queryset = voltage_queryset.filter(project_name=project_name)
+        voltages = voltage_queryset.values_list('voltage_level', flat=True).distinct().order_by('voltage_level')
         
         # Формируем список напряжений без опции "Все напряжения" (она будет только как placeholder)
         voltage_choices = []
@@ -211,3 +226,24 @@ class CalculationFactorsForm(forms.Form):
             attrs={"class": "form-control", "min": 1.5, "max": 2.0, "step": 0.1}
         ),
     )
+
+
+class ProjectSelectionForm(forms.Form):
+    """Форма для выбора проекта PowerFactory."""
+    
+    project_name = forms.ChoiceField(
+        label="Проект PowerFactory",
+        required=True,
+        choices=[],
+        widget=forms.Select(attrs={'class': 'form-select form-select-sm'})
+    )
+    
+    def __init__(self, *args, **kwargs):
+        available_projects = kwargs.pop('available_projects', [])
+        super().__init__(*args, **kwargs)
+        if available_projects:
+            self.fields['project_name'].choices = [
+                (name, name) for name in available_projects
+            ]
+        else:
+            self.fields['project_name'].choices = [('', 'Нет доступных проектов')]

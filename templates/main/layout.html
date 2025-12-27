@@ -39,6 +39,22 @@
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <!-- {% if user.is_authenticated %} -->
+                    <!-- Селектор проекта PowerFactory -->
+                    <li class="nav-item me-3">
+                        <form method="post" action="{% url 'calculation' %}" id="project-selection-form"
+                            class="d-flex align-items-center">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="select_project">
+                            <div class="d-flex align-items-center">
+                                <span class="text-light me-2" style="font-size: 14px;">Проект PF:</span>
+                                <select name="project_name" id="pf-project-select" class="form-select form-select-sm"
+                                    style="width: 200px;">
+                                    <option value="">Проект не выбран</option>
+                                </select>
+                                <span id="project-status" class="ms-2" style="font-size: 14px;"></span>
+                            </div>
+                        </form>
+                    </li>
                     <li class="nav-item">
                         <form method="post" action="{% url 'logout' %}">
                             {% csrf_token %}
@@ -52,6 +68,127 @@
     </nav>
     <h1>{% block header %}{% endblock header %}</h1>
     <div>{% block content%}{% endblock content %}</div>
+
+    <script>
+        $(document).ready(function () {
+            const projectSelect = $('#pf-project-select');
+            const projectStatus = $('#project-status');
+            const projectForm = $('#project-selection-form');
+
+            // Функция для загрузки списка проектов
+            function loadProjects() {
+                $.ajax({
+                    url: '{% url "get_available_projects_ajax" %}',
+                    type: 'GET',
+                    success: function (response) {
+                        projectSelect.empty();
+                        console.log('Response from server:', response);
+
+                        // Проверяем наличие ошибки в ответе
+                        if (response.error) {
+                            let errorMsg = response.error;
+                            if (response.error_type === 'ModuleNotFoundError') {
+                                errorMsg = 'PowerFactory не запущен';
+                            }
+                            projectSelect.append('<option value="">Проект не выбран</option>');
+                            projectSelect.append('<option value="" disabled>' + errorMsg + '</option>');
+                            updateProjectStatus(null, null);
+                            return;
+                        }
+
+                        if (response.projects && response.projects.length > 0) {
+                            // Добавляем опцию "Проект не выбран" в начало списка
+                            projectSelect.append('<option value="">Проект не выбран</option>');
+
+                            response.projects.forEach(function (project) {
+                                const option = $('<option></option>')
+                                    .attr('value', project)
+                                    .text(project);
+
+                                // Выделяем текущий проект
+                                if (project === response.current_project) {
+                                    option.attr('selected', true);
+                                }
+
+                                projectSelect.append(option);
+                            });
+
+                            // Если проект не выбран, выбираем опцию "Проект не выбран"
+                            if (!response.current_project) {
+                                projectSelect.val('');
+                            }
+
+                            // Обновляем статус проекта
+                            updateProjectStatus(response.current_project, response.project_available);
+                        } else {
+                            // Если нет проектов и нет ошибки - возможно PowerFactory не запущен или нет проектов
+                            projectSelect.append('<option value="">Проект не выбран</option>');
+                            projectSelect.append('<option value="" disabled>Нет доступных проектов. Убедитесь, что PowerFactory запущен.</option>');
+                            updateProjectStatus(null, null);
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        console.error('AJAX error:', xhr, status, error);
+                        projectSelect.empty();
+                        let errorMsg = 'Ошибка загрузки проектов';
+
+                        if (xhr.responseJSON) {
+                            console.log('Response JSON:', xhr.responseJSON);
+                            if (xhr.responseJSON.error) {
+                                errorMsg = xhr.responseJSON.error;
+                            } else if (xhr.responseJSON.error_type === 'ModuleNotFoundError') {
+                                errorMsg = 'PowerFactory не запущен';
+                            }
+                        } else if (xhr.status === 0) {
+                            errorMsg = 'Не удалось подключиться к серверу';
+                        } else if (xhr.status === 500) {
+                            errorMsg = 'Ошибка сервера';
+                        }
+
+                        projectSelect.append('<option value="">Проект не выбран</option>');
+                        projectSelect.append('<option value="" disabled>' + errorMsg + '</option>');
+                        updateProjectStatus(null, null);
+                    }
+                });
+            }
+
+            // Функция для обновления статуса проекта
+            function updateProjectStatus(projectName, isAvailable) {
+                projectStatus.empty();
+
+                if (!projectName) {
+                    projectStatus.html('<span class="text-warning" title="Проект не выбран">●</span>');
+                    return;
+                }
+
+                if (isAvailable === true) {
+                    projectStatus.html('<i class="bi bi-circle-fill text-success" title="Проект доступен"></i>');
+                } else if (isAvailable === false) {
+                    projectStatus.html('<i class="bi bi-circle-fill text-danger" title="Проект недоступен"></i>');
+                } else {
+                    projectStatus.html('<span class="text-secondary" title="Статус неизвестен">●</span>');
+                }
+            }
+
+            // Обработчик изменения проекта
+            projectSelect.on('change', function () {
+                const selectedValue = $(this).val();
+                if (selectedValue) {
+                    projectForm.submit();
+                } else {
+                    // Если выбран "Проект не выбран", очищаем сессию
+                    // Можно добавить AJAX запрос для очистки сессии, если нужно
+                    updateProjectStatus(null, null);
+                }
+            });
+
+            // Загружаем проекты при загрузке страницы
+            loadProjects();
+
+            // Обновляем список проектов каждые 30 секунд
+            setInterval(loadProjects, 30000);
+        });
+    </script>
 </body>
 
 </html>

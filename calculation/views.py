@@ -10,6 +10,7 @@ from django.views.decorators.http import require_http_methods
 import json
 from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 
 from core.models import Line
@@ -22,6 +23,7 @@ from .services import (
     SettingsCalculationService,
     SensitivityAnalysisService,
 )
+from .services.project_sync_service import ProjectSyncService
 from .services.fault_calculation_service import FaultCalculationService
 from .services.submodes_generator import generate_half_set_submodes
 from .services.powerfactory_locator import get_pf_line_data, get_pf_line
@@ -54,13 +56,16 @@ class CalculationView(LoginRequiredMixin, TemplateView):
     def get(self, request):
         print(f"User is authenticated: {request.user.is_authenticated}")
 
-        line_form = LineSelectionForm()
+        # Получаем проект из сессии для фильтрации данных
+        project_name = request.session.get('pf_project_name')
+        line_form = LineSelectionForm(project_name=project_name)
         calculation_form = CalculationFactorsForm()
         submodes_form1 = SubmodesConfigurationForm(prefix="half_set1")
         submodes_form2 = SubmodesConfigurationForm(prefix="half_set2")
 
         line = None
         protection_device = None
+        methodology = None
         half_set1 = None
         half_set2 = None
         half_set1_topology_display = None
@@ -69,27 +74,63 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         half_set2_submodes = None
         line_id = request.session.get("line_id", None)
 
+        # Получаем проект из сессии для фильтрации данных
+        project_name = request.session.get('pf_project_name')
+
         if line_id:
-            line = Line.objects.get(pk=line_id)
-            protection_half_sets = line.protection_half_sets.all()
-            half_set1 = protection_half_sets[0]
-            half_set2 = protection_half_sets[1]
-            protection_device = half_set1.protection_device
-            half_set1_topology_display = request.session.get(
-                "half_set1_topology_display"
-            )
-            half_set2_topology_display = request.session.get(
-                "half_set2_topology_display"
-            )
-            line_form = LineSelectionForm(
-                initial={
-                    "line": line.id,
-                    "ct": line.ct.id if line.ct else None,
-                    "vt": line.vt.id if line.vt else None,
-                }
-            )
-            half_set1_submodes = request.session.get("half_set1_submodes")
-            half_set2_submodes = request.session.get("half_set2_submodes")
+            try:
+                # Фильтруем линию по проекту, если проект выбран
+                line_query = Line.objects.filter(pk=line_id)
+                if project_name:
+                    line_query = line_query.filter(project_name=project_name)
+                line = line_query.get()
+                protection_half_sets = list(line.protection_half_sets.all())
+                
+                # Проверяем наличие полукомплектов защиты
+                if len(protection_half_sets) < 2:
+                    # Очищаем сессию для этой линии, так как нет полукомплектов
+                    request.session.pop("line_id", None)
+                    request.session.pop("half_set1_id", None)
+                    request.session.pop("half_set2_id", None)
+                    request.session.pop("line_data", None)
+                    messages.error(
+                        request,
+                        f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
+                        f"Найдено: {len(protection_half_sets)}, требуется: 2. "
+                        f"Пожалуйста, создайте полукомплекты защиты с помощью команды: "
+                        f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}"
+                    )
+                    # Сбрасываем line_id, чтобы не пытаться загружать данные для этой линии
+                    line_id = None
+                    line = None
+                else:
+                    half_set1 = protection_half_sets[0]
+                    half_set2 = protection_half_sets[1]
+                    protection_device = half_set1.protection_device
+                    
+                    # Получаем методику с учетом напряжения ЛЭП
+                    if protection_device and line:
+                        methodology = protection_device.get_methodology_by_voltage(line.voltage_level)
+                    else:
+                        methodology = protection_device.methodology if protection_device else None
+            except (Line.DoesNotExist, IndexError):
+                # Если линия не найдена или нет полукомплектов, очищаем сессию
+                request.session.pop("line_id", None)
+                request.session.pop("half_set1_id", None)
+                request.session.pop("half_set2_id", None)
+                request.session.pop("line_data", None)
+                line_id = None
+                line = None
+        
+        # Получаем данные для отображения из сессии
+        half_set1_topology_display = request.session.get(
+            "half_set1_topology_display"
+        )
+        half_set2_topology_display = request.session.get(
+            "half_set2_topology_display"
+        )
+        half_set1_submodes = request.session.get("half_set1_submodes")
+        half_set2_submodes = request.session.get("half_set2_submodes")
 
         line_data = request.session.get("line_data")
 
@@ -169,6 +210,45 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         if calculation_factors:
             calculation_form = CalculationFactorsForm(initial=calculation_factors)
 
+        # Получаем подстанции ответвлений для линии
+        branch_substations = []
+        if line:
+            # Получаем все активные ответвления
+            branches = line.branches.filter(is_active=True).select_related('substation').order_by('id')
+            
+            for branch in branches:
+                if branch.substation:
+                    # Используем pf_name или строковое представление подстанции
+                    substation_name = branch.substation.pf_name or str(branch.substation)
+                    branch_substations.append(substation_name)
+                elif branch.pf_name_substation:
+                    branch_substations.append(branch.pf_name_substation)
+            
+            # Если ответвлений нет, но есть pf_name, попробуем обновить ответвления из PowerFactory
+            # Это может быть полезно для параллельных линий, где ответвления могут быть не сохранены
+            if not branch_substations and line.pf_name:
+                try:
+                    project_name = request.session.get('pf_project_name')
+                    app = self.pf_manager.get_application(project_name=project_name)
+                    line.update_branches_from_pf(app)
+                    # Повторно получаем ответвления после обновления
+                    branches = line.branches.filter(is_active=True).select_related('substation').order_by('id')
+                    for branch in branches:
+                        if branch.substation:
+                            substation_name = branch.substation.pf_name or str(branch.substation)
+                            branch_substations.append(substation_name)
+                        elif branch.pf_name_substation:
+                            branch_substations.append(branch.pf_name_substation)
+                except Exception:
+                    # Если не удалось обновить (например, PowerFactory недоступен), просто игнорируем ошибку
+                    pass
+
+        # Получаем методику с учетом напряжения ЛЭП, если еще не получена
+        if protection_device and line and not methodology:
+            methodology = protection_device.get_methodology_by_voltage(line.voltage_level)
+        elif protection_device and not methodology:
+            methodology = protection_device.methodology
+
         return render(
             request,
             self.template_name,
@@ -176,6 +256,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 "line": line,
                 "line_data": line_data,
                 "protection_device": protection_device,
+                "methodology": methodology,
                 "line_form": line_form,
                 "calculation_form": calculation_form,
                 "submodes_form1": submodes_form1,
@@ -186,12 +267,15 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 "half_set2_topology_display": half_set2_topology_display,
                 "half_set1_submodes": half_set1_submodes,
                 "half_set2_submodes": half_set2_submodes,
+                "branch_substations": branch_substations,
             },
         )
 
     def post(self, request):
         action = request.POST.get("action")
-        if action == "select_line":
+        if action == "select_project":
+            return self.select_project(request)
+        elif action == "select_line":
             return self.select_line(request)
         elif action == "generate_submodes":
             return self.generate_submodes(request)
@@ -201,10 +285,92 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             return self.calculate_settings(request)
 
         return redirect("calculation")
+    
+    def select_project(self, request):
+        """
+        Обрабатывает выбор проекта PowerFactory пользователем и синхронизирует данные.
+        """
+        project_name = request.POST.get("project_name")
+        if project_name:
+            # Проверяем доступность проекта
+            if self.pf_manager.check_project_available(project_name):
+                try:
+                    # Сохраняем в сессию
+                    request.session['pf_project_name'] = project_name
+                    
+                    # Проверяем, нужна ли синхронизация
+                    sync_service = ProjectSyncService(project_name=project_name)
+                    
+                    if sync_service.needs_sync():
+                        # Запускаем синхронизацию проекта с БД
+                        messages.info(
+                            request, 
+                            f"Начинается синхронизация проекта '{project_name}' с базой данных. "
+                            "Это может занять некоторое время..."
+                        )
+                        # Выполняем синхронизацию
+                        results = sync_service.sync_project(force_full=False)
+                    else:
+                        # Данные уже есть, только обновляем
+                        messages.info(
+                            request, 
+                            f"Обновление данных проекта '{project_name}'..."
+                        )
+                        results = sync_service.sync_project(force_full=False)
+                    
+                    # Формируем сообщение о результатах
+                    if results.get('skipped'):
+                        messages.info(request, results.get('message', 'Данные проекта уже актуальны.'))
+                    else:
+                        total_errors = (
+                            results['lines']['errors'] + 
+                            results['substations']['errors'] + 
+                            results['branches']['errors'] + 
+                            results['half_sets']['errors'] + 
+                            results['topology']['errors']
+                        )
+                        
+                        if total_errors == 0:
+                            result_msg = (
+                                f"Проект '{project_name}' успешно обновлен! "
+                                f"Линии: {results['lines']['created']} создано, {results['lines']['updated']} обновлено. "
+                                f"Подстанции: {results['substations']['created']} создано, {results['substations']['updated']} обновлено. "
+                            )
+                            if results['branches']['filled'] > 0:
+                                result_msg += f"Ответвления: {results['branches']['filled']} заполнено. "
+                            if results['half_sets']['created'] > 0:
+                                result_msg += f"Полукомплекты: {results['half_sets']['created']} создано. "
+                            if results['topology']['analyzed'] > 0:
+                                result_msg += f"Топология: {results['topology']['analyzed']} проанализировано."
+                            messages.success(request, result_msg)
+                        else:
+                            result_msg = (
+                                f"Проект '{project_name}' обновлен с предупреждениями. "
+                                f"Линии: {results['lines']['created']} создано, {results['lines']['updated']} обновлено. "
+                                f"Подстанции: {results['substations']['created']} создано. "
+                                f"Обнаружено ошибок: {total_errors}."
+                            )
+                            messages.warning(request, result_msg)
+                    
+                except Exception as e:
+                    messages.error(
+                        request, 
+                        f"Ошибка при синхронизации проекта '{project_name}': {str(e)}"
+                    )
+                    # Оставляем проект в сессии, но предупреждаем об ошибке
+            else:
+                messages.error(request, f"Проект '{project_name}' недоступен")
+                # Очищаем сессию, если проект недоступен
+                request.session.pop('pf_project_name', None)
+        else:
+            messages.error(request, "Не выбран проект")
+        
+        return redirect("calculation")
 
     def select_line(self, request):
         # request.session.clear()
-        form = LineSelectionForm(request.POST)
+        project_name = request.session.get('pf_project_name')
+        form = LineSelectionForm(request.POST, project_name=project_name)
         if form.is_valid():
 
             # Получаем выбранную ЛЭП с формы и сохраняем в сессию
@@ -222,7 +388,18 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 line.save()
 
             # Получаем полукомплекты ЛЭП
-            protection_half_sets = line.protection_half_sets.all()
+            protection_half_sets = list(line.protection_half_sets.all())
+
+            # Проверяем наличие полукомплектов защиты
+            if len(protection_half_sets) < 2:
+                messages.error(
+                    request,
+                    f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
+                    f"Найдено: {len(protection_half_sets)}, требуется: 2. "
+                    f"Пожалуйста, создайте полукомплекты защиты с помощью команды: "
+                    f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}"
+                )
+                return redirect("calculation")
 
             # Дифференцируем полукомплекты
             half_set1 = protection_half_sets[0]
@@ -234,7 +411,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
             try:
                 # Создаем COM-объект PowerFactory
-                app = self.pf_manager.get_application()
+                project_name = request.session.get('pf_project_name')
+                app = self.pf_manager.get_application(project_name=project_name)
 
                 pf_line = get_pf_line(app, line.pf_name)
                 pf_line_data = get_pf_line_data(pf_line)
@@ -303,16 +481,20 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
             # Получаем полукомплекты из сессии
             line_id = request.session.get("line_id")
+            project_name = request.session.get('pf_project_name')
             if line_id:
                 from core.models import Line
-                line = Line.objects.get(id=line_id)
+                line_query = Line.objects.filter(id=line_id)
+                if project_name:
+                    line_query = line_query.filter(project_name=project_name)
+                line = line_query.get()
                 protection_half_sets = line.protection_half_sets.all()
                 half_set1 = protection_half_sets[0] if len(protection_half_sets) > 0 else None
                 half_set2 = protection_half_sets[1] if len(protection_half_sets) > 1 else None
             else:
                 half_set1 = None
                 half_set2 = None
-            
+
             half_set1_submodes = generate_half_set_submodes(
                 half_set1_topology, 
                 half_set1_submodes_data,
@@ -353,8 +535,24 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         calculation_factors = request.session.get("calculation_factors")
         line_id = request.session.get("line_id", None)
 
-        line = Line.objects.get(pk=line_id)
-        protection_half_sets = line.protection_half_sets.all()
+        project_name = request.session.get('pf_project_name')
+        line_query = Line.objects.filter(pk=line_id)
+        if project_name:
+            line_query = line_query.filter(project_name=project_name)
+        line = line_query.get()
+        protection_half_sets = list(line.protection_half_sets.all())
+        
+        # Проверяем наличие полукомплектов защиты
+        if len(protection_half_sets) < 2:
+            messages.error(
+                request,
+                f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
+                f"Найдено: {len(protection_half_sets)}, требуется: 2. "
+                f"Пожалуйста, создайте полукомплекты защиты с помощью команды: "
+                f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}"
+            )
+            return redirect("calculation")
+        
         half_set1 = protection_half_sets[0]
         half_set2 = protection_half_sets[1]
 
@@ -365,7 +563,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         calculation_meta = CalculationMeta.objects.create(line=line, user=request.user)
 
         # Создаем COM-объект PowerFactory
-        app = self.pf_manager.get_application()
+        project_name = request.session.get('pf_project_name')
+        app = self.pf_manager.get_application(project_name=project_name)
 
         # Выполняем расчет токов КЗ
         fault_service.perform_fault_calculation(
@@ -410,7 +609,13 @@ def filter_lines_ajax(request):
     line_type_id = request.GET.get('line_type_id')
     voltage = request.GET.get('voltage')
     
-    queryset = Line.objects.all().order_by('dispatch_name')
+    # Получаем проект из сессии для фильтрации
+    project_name = request.GET.get('project_name') or request.session.get('pf_project_name')
+    
+    queryset = Line.objects.all()
+    if project_name:
+        queryset = queryset.filter(project_name=project_name)
+    queryset = queryset.order_by('dispatch_name')
     
     # Фильтруем по типу
     if line_type_id:
@@ -668,3 +873,59 @@ def export_calculation_results(request, calculation_meta_id):
     
     wb.save(response)
     return response
+
+
+@require_http_methods(["GET"])
+@login_required
+def get_available_projects_ajax(request):
+    """
+    AJAX endpoint для получения списка доступных проектов PowerFactory.
+    """
+    try:
+        pf_manager = PowerFactoryManager()
+        print(f"[DEBUG] get_available_projects_ajax: начало запроса")
+        projects = pf_manager.get_available_projects()
+        print(f"[DEBUG] get_available_projects_ajax: получено проектов: {len(projects) if projects else 0}")
+        
+        # Получаем текущий выбранный проект из сессии
+        current_project = request.session.get('pf_project_name')
+        print(f"[DEBUG] get_available_projects_ajax: текущий проект из сессии: {current_project}")
+        
+        # Проверяем доступность текущего проекта
+        project_status = None
+        if current_project:
+            try:
+                project_status = pf_manager.check_project_available(current_project)
+                print(f"[DEBUG] get_available_projects_ajax: статус проекта '{current_project}': {project_status}")
+            except Exception as e:
+                print(f"[DEBUG] get_available_projects_ajax: ошибка при проверке статуса проекта: {e}")
+                project_status = None
+        
+        response_data = {
+            'projects': projects,
+            'current_project': current_project,
+            'project_available': project_status  # True/False/None
+        }
+        print(f"[DEBUG] get_available_projects_ajax: отправка ответа: {response_data}")
+        return JsonResponse(response_data)
+    except ModuleNotFoundError as e:
+        # PowerFactory не установлен или недоступен
+        return JsonResponse({
+            'error': 'PowerFactory недоступен. Убедитесь, что PowerFactory установлен и запущен.',
+            'error_type': 'ModuleNotFoundError',
+            'projects': [],
+            'current_project': None,
+            'project_available': None
+        }, status=500)
+    except Exception as e:
+        # Другие ошибки
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Ошибка при получении проектов PowerFactory: {error_trace}")
+        return JsonResponse({
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'projects': [],
+            'current_project': None,
+            'project_available': None
+        }, status=500)

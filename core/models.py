@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db import models
+from django.db.models import Q
 
 
 class LineType(models.Model):
@@ -255,13 +256,20 @@ class Line(models.Model):
     """
 
     dispatch_name = models.CharField(
-        verbose_name="Диспетчерское наименование", max_length=100, unique=True
+        verbose_name="Диспетчерское наименование", max_length=100
     )
     pf_name = models.CharField(
         verbose_name="Наименование в PowerFactory",
         max_length=100,
         blank=True,
         null=True,
+    )
+    project_name = models.CharField(
+        verbose_name="Имя проекта PowerFactory",
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Имя проекта PowerFactory, из которого импортирована линия",
     )
     index_pf = models.IntegerField(
         verbose_name="Индекс линии в PowerFactory",
@@ -393,6 +401,7 @@ class Line(models.Model):
 
         verbose_name = "ЛЭП"
         verbose_name_plural = "ЛЭП"
+        unique_together = [("pf_name", "project_name")]
 
     def update_voltage_from_pf(self, app) -> None:
         """
@@ -605,11 +614,17 @@ class Substation(models.Model):
     pf_name = models.CharField(
         verbose_name="Наименование в PowerFactory",
         max_length=100,
-        unique=True,
         null=True,
         blank=True,
         default="",
         help_text="Имя подстанции из PowerFactory",
+    )
+    project_name = models.CharField(
+        verbose_name="Имя проекта PowerFactory",
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Имя проекта PowerFactory, из которого импортирована подстанция",
     )
 
     class Meta:
@@ -617,6 +632,7 @@ class Substation(models.Model):
 
         verbose_name = "Подстанция"
         verbose_name_plural = "Подстанции"
+        unique_together = [("pf_name", "project_name")]
 
     def __str__(self):
         """
@@ -740,6 +756,67 @@ class ProtectionDevice(models.Model):
         """
 
         return self.device_model
+    
+    def get_methodology_by_voltage(self, voltage_level):
+        """
+        Возвращает методику расчета в зависимости от напряжения ЛЭП.
+        Ищет методику по напряжению среди всех доступных методик.
+        
+        Args:
+            voltage_level: Напряжение ЛЭП в кВ (Decimal или float)
+            
+        Returns:
+            MethodologyDocument или None
+        """
+        if voltage_level is None:
+            return self.methodology
+        
+        # Преобразуем в float для сравнения
+        voltage = float(voltage_level)
+        
+        # Получаем название производителя для уточнения поиска
+        manufacturer_name = None
+        if self.manufacturer_fk:
+            manufacturer_name = self.manufacturer_fk.name
+        
+        # Если напряжение >= 330 кВ, ищем методику для 330 и выше
+        if voltage >= 330:
+            # Ищем методику с "330" в имени файла
+            # Если есть производитель, ищем среди методик с его названием в пути
+            if manufacturer_name:
+                methodology_330 = MethodologyDocument.objects.filter(
+                    Q(name_file__icontains="330") & Q(name_file__icontains=manufacturer_name)
+                ).first()
+                if methodology_330:
+                    return methodology_330
+            
+            # Если не найдено с производителем, ищем любую методику для 330
+            methodology_330 = MethodologyDocument.objects.filter(
+                name_file__icontains="330"
+            ).first()
+            if methodology_330:
+                return methodology_330
+        
+        # Если напряжение < 330 кВ, ищем методику для 110-220
+        elif voltage >= 110:
+            # Ищем методику с "110-220" в имени файла
+            # Если есть производитель, ищем среди методик с его названием в пути
+            if manufacturer_name:
+                methodology_110_220 = MethodologyDocument.objects.filter(
+                    Q(name_file__icontains="110-220") & Q(name_file__icontains=manufacturer_name)
+                ).first()
+                if methodology_110_220:
+                    return methodology_110_220
+            
+            # Если не найдено с производителем, ищем любую методику для 110-220
+            methodology_110_220 = MethodologyDocument.objects.filter(
+                name_file__icontains="110-220"
+            ).first()
+            if methodology_110_220:
+                return methodology_110_220
+        
+        # Если не найдено, возвращаем основную методику
+        return self.methodology
 
 
 class ProtectionHalfSet(models.Model):

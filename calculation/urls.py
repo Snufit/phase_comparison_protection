@@ -47,5 +47,10 @@ urlpatterns = [
         'filter-lines/',
         views.filter_lines_ajax,
         name='filter_lines_ajax'
-    )
+    ),
+    path(
+        'get-available-projects/',
+        views.get_available_projects_ajax,
+        name='get_available_projects_ajax'
+    ),
 ]

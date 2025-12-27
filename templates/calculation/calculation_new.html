@@ -168,6 +168,18 @@
                         &mdash;
                         {% endif %}
                     </p>
+                    {% if branch_substations %}
+                    <p class="mb-1"><strong>ПС ответвлений:</strong></p>
+                    {% if branch_substations|length > 1 %}
+                    <ul class="mb-0 ps-3" style="list-style-type: disc;">
+                        {% for substation in branch_substations %}
+                        <li class="mb-1">{{ substation }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="mb-0 ps-3">{{ branch_substations.0 }}</p>
+                    {% endif %}
+                    {% endif %}
                 </div>
             </div>
 
@@ -187,6 +199,17 @@
                         &mdash;
                         {% endif %}
                     </p>
+                    {% if methodology %}
+                    <p><strong>Документ методики: </strong>
+                        <a href="{% url 'methodology_document' methodology.id %}" target="_blank"
+                            rel="noopener noreferrer" class="text-decoration-none">
+                            <i class="bi bi-file-earmark-pdf"></i> Открыть методику
+                        </a>
+                    </p>
+                    <p class="text-muted small mb-0">
+                        <i class="bi bi-calendar3"></i> Дата загрузки: {{ methodology.created_at|date:"d.m.Y H:i" }}
+                    </p>
+                    {% endif %}
                 </div>
             </div>
 
