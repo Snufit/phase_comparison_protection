@@ -1,11 +1,33 @@
 import sys
 import threading
 import time
+from functools import wraps
 
 try:
     import pythoncom
 except ImportError:
     pythoncom = None
+
+
+def handle_threading_error(func):
+    """
+    Декоратор для обработки ошибок многопоточности PowerFactory.
+    Автоматически пересоздает app при ошибке "can't be used from other threads".
+    """
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                return func(self, *args, **kwargs)
+            except RuntimeError as e:
+                if "can't be used from other threads" in str(e) and attempt < max_retries - 1:
+                    # Очищаем thread-local app и пробуем снова
+                    if hasattr(PowerFactoryManager._thread_local, 'app'):
+                        PowerFactoryManager._thread_local.app = None
+                    continue
+                raise
+    return wrapper
 
 
 class PowerFactoryManager:
@@ -21,13 +43,14 @@ class PowerFactoryManager:
     # Кэш для списка проектов (общий для всех потоков)
     _projects_cache = None
     _projects_cache_time = 0
-    _cache_ttl = 10  # Время жизни кэша в секундах
+    _cache_ttl = 60  # Время жизни кэша в секундах (увеличено для уменьшения частоты запросов)
 
     def __init__(self):
         # Добавляем путь только если его еще нет в sys.path
         if self.POWERFACTORY_PATH not in sys.path:
             sys.path.append(self.POWERFACTORY_PATH)
 
+    @handle_threading_error
     def get_application(self, project_name=None):
         """
         Получает приложение PowerFactory с активацией проекта.
@@ -56,24 +79,10 @@ class PowerFactoryManager:
                 pass
         
         # Проверяем, есть ли уже инициализированный app для этого потока
-        if hasattr(self._thread_local, 'app') and self._thread_local.app is not None:
-            try:
-                # Проверяем, что app еще валиден и активен нужный проект
-                active_project = self._thread_local.app.GetActiveProject()
-                if active_project:
-                    active_name = active_project.GetAttribute("loc_name")
-                    if active_name == target_project:
-                        return self._thread_local.app
-            except RuntimeError as e:
-                # Если ошибка многопоточности, очищаем app и создадим новый
-                if "can't be used from other threads" in str(e):
-                    self._thread_local.app = None
-                else:
-                    # Другие ошибки - тоже очищаем
-                    self._thread_local.app = None
-            except Exception:
-                # Если app невалиден, очищаем и создаем новый
-                self._thread_local.app = None
+        # ВАЖНО: не используем кэшированный app без проверки, так как он может быть из другого потока
+        # Всегда создаем новый app для каждого запроса, чтобы избежать проблем с многопоточностью
+        # Thread-local storage может не работать правильно с PowerFactory COM объектами
+        self._thread_local.app = None
         
         # Пытаемся импортировать модуль PowerFactory
         try:
@@ -131,65 +140,180 @@ class PowerFactoryManager:
                 pass
             return sorted(list(projects_set))
 
-        # Смотрим, какой проект сейчас активен
-        try:
-            active_project = app.GetActiveProject()
-        except RuntimeError as e:
-            # Если ошибка многопоточности, очищаем thread-local и пробуем заново
-            if "can't be used from other threads" in str(e):
-                self._thread_local.app = None
-                # Пытаемся получить новый app
-                import powerfactory  # type: ignore
-                app = powerfactory.GetApplication()
-                if app is None:
-                    raise RuntimeError(
-                        "Не удалось получить приложение PowerFactory. "
-                        "Убедитесь, что PowerFactory запущен."
-                    )
-                # Пробуем снова получить активный проект
-                try:
-                    active_project = app.GetActiveProject()
-                except Exception as e2:
-                    raise RuntimeError(
-                        f"Ошибка при получении активного проекта PowerFactory: {e2}. "
-                        "Убедитесь, что PowerFactory запущен и доступен."
-                    )
-            else:
+        # Вспомогательная функция для безопасного получения активного проекта
+        def safe_get_active_project(app_instance):
+            """Безопасно получает активный проект с обработкой ошибок многопоточности."""
+            try:
+                return app_instance.GetActiveProject()
+            except RuntimeError as e:
+                if "can't be used from other threads" in str(e):
+                    # Ошибка многопоточности - возвращаем None, чтобы пересоздать app
+                    return None
+                raise
+            except Exception as e:
                 raise RuntimeError(
                     f"Ошибка при получении активного проекта PowerFactory: {e}. "
                     "Убедитесь, что PowerFactory запущен и доступен."
                 )
-        except Exception as e:
-            raise RuntimeError(
-                f"Ошибка при получении активного проекта PowerFactory: {e}. "
-                "Убедитесь, что PowerFactory запущен и доступен."
-            )
+        
+        # Смотрим, какой проект сейчас активен
+        # Используем повторные попытки с пересозданием app при ошибках многопоточности
+        max_retries = 3
+        active_project = None
+        
+        for attempt in range(max_retries):
+            try:
+                active_project = safe_get_active_project(app)
+                if active_project is not None:
+                    break  # Успешно получили активный проект
+                # Если получили None (ошибка многопоточности), пересоздаем app
+                if attempt < max_retries - 1:
+                    print(f"[DEBUG] Ошибка многопоточности при получении активного проекта (попытка {attempt + 1}/{max_retries})")
+                    self._thread_local.app = None
+                    app = powerfactory.GetApplication()
+                    if app is None:
+                        raise RuntimeError(
+                            "Не удалось получить приложение PowerFactory. "
+                            "Убедитесь, что PowerFactory запущен."
+                        )
+                    time.sleep(0.1)  # Небольшая задержка перед повторной попыткой
+                    continue
+                else:
+                    # Последняя попытка не удалась - пробуем активировать проект напрямую без проверки
+                    print("[DEBUG] Все попытки получения активного проекта не удались, пробуем активировать проект напрямую")
+                    try:
+                        app.ActivateProject(target_project)
+                        # Если активация прошла успешно, сохраняем app и возвращаем его
+                        self._thread_local.app = app
+                        return app
+                    except Exception as e:
+                        # Если и активация не удалась, возвращаем app без проверки
+                        # Это позволит продолжить работу, хотя может быть нестабильно
+                        print(f"[DEBUG] Не удалось активировать проект напрямую: {e}")
+                        print("[DEBUG] Возвращаем app без проверки активного проекта (может быть нестабильно)")
+                        self._thread_local.app = app
+                        return app
+            except RuntimeError as e:
+                # Если это не ошибка многопоточности, пробрасываем дальше
+                if "can't be used from other threads" not in str(e):
+                    raise
+                # Если это ошибка многопоточности, пробуем активировать проект напрямую
+                print(f"[DEBUG] RuntimeError при получении активного проекта: {e}")
+                print("[DEBUG] Пробуем активировать проект напрямую без проверки")
+                try:
+                    app.ActivateProject(target_project)
+                    self._thread_local.app = app
+                    return app
+                except Exception:
+                    # Если и активация не удалась, возвращаем app без проверки
+                    print("[DEBUG] Возвращаем app без проверки активного проекта (может быть нестабильно)")
+                    self._thread_local.app = app
+                    return app
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"[DEBUG] Ошибка при получении активного проекта (попытка {attempt + 1}/{max_retries}): {e}")
+                    self._thread_local.app = None
+                    app = powerfactory.GetApplication()
+                    if app is None:
+                        raise RuntimeError(
+                            "Не удалось получить приложение PowerFactory. "
+                            "Убедитесь, что PowerFactory запущен."
+                        )
+                    time.sleep(0.1)
+                    continue
+                else:
+                    raise RuntimeError(
+                        f"Ошибка при получении активного проекта PowerFactory: {e}. "
+                        "Убедитесь, что PowerFactory запущен и доступен."
+                    )
 
         active_name = None
         if active_project:
             try:
                 active_name = active_project.GetAttribute("loc_name")
+            except RuntimeError as e:
+                if "can't be used from other threads" in str(e):
+                    # Ошибка многопоточности - пересоздаем app
+                    self._thread_local.app = None
+                    app = powerfactory.GetApplication()
+                    if app is None:
+                        raise RuntimeError(
+                            "Не удалось получить приложение PowerFactory. "
+                            "Убедитесь, что PowerFactory запущен."
+                        )
+                    # Пробуем снова
+                    active_project = safe_get_active_project(app)
+                    if active_project:
+                        try:
+                            active_name = active_project.GetAttribute("loc_name")
+                        except Exception:
+                            active_name = None
+                else:
+                    raise
             except Exception:
                 active_name = None
 
         # 1. Если уже активен нужный проект — сохраняем в thread-local и возвращаем app
         if active_name == target_project:
             self._thread_local.app = app
-        return app
+            return app
 
         # 2. Если активен другой проект — пробуем активировать нужный
         if active_name and active_name != target_project:
             try:
                 app.ActivateProject(target_project)
-                active_after = app.GetActiveProject()
+                active_after = safe_get_active_project(app)
                 if active_after:
                     try:
                         after_name = active_after.GetAttribute("loc_name")
                         if after_name == target_project:
                             self._thread_local.app = app
                             return app
+                    except RuntimeError as e:
+                        if "can't be used from other threads" in str(e):
+                            # Ошибка многопоточности - пересоздаем app и пробуем снова
+                            self._thread_local.app = None
+                            app = powerfactory.GetApplication()
+                            if app:
+                                try:
+                                    app.ActivateProject(target_project)
+                                    active_after = safe_get_active_project(app)
+                                    if active_after:
+                                        after_name = active_after.GetAttribute("loc_name")
+                                        if after_name == target_project:
+                                            self._thread_local.app = app
+                                            return app
+                                except Exception:
+                                    pass
+                        else:
+                            raise
                     except Exception:
                         pass
+            except RuntimeError as e:
+                if "can't be used from other threads" in str(e):
+                    # Ошибка многопоточности - пересоздаем app
+                    self._thread_local.app = None
+                    app = powerfactory.GetApplication()
+                    if app:
+                        try:
+                            app.ActivateProject(target_project)
+                            active_after = safe_get_active_project(app)
+                            if active_after:
+                                after_name = active_after.GetAttribute("loc_name")
+                                if after_name == target_project:
+                                    self._thread_local.app = app
+                                    return app
+                        except Exception:
+                            pass
+                # Если не удалось переключить, сообщаем пользователю
+                available = get_available_projects()
+                msg = (
+                    f"В PowerFactory открыт проект '{active_name}'.\n"
+                    f"Не удалось автоматически переключить на проект '{target_project}'."
+                )
+                if available:
+                    msg += "\nДоступные проекты: " + ", ".join(available)
+                raise RuntimeError(msg)
             except Exception:
                 # Если не удалось переключить, сообщаем пользователю
                 available = get_available_projects()
@@ -204,16 +328,49 @@ class PowerFactoryManager:
         # 3. Если нет активного проекта — пробуем активировать нужный
         try:
             app.ActivateProject(target_project)
-            active_after = app.GetActiveProject()
+            active_after = safe_get_active_project(app)
             if active_after:
                 try:
                     after_name = active_after.GetAttribute("loc_name")
                     if after_name == target_project:
                         self._thread_local.app = app
                         return app
+                except RuntimeError as e:
+                    if "can't be used from other threads" in str(e):
+                        # Ошибка многопоточности - пересоздаем app
+                        self._thread_local.app = None
+                        app = powerfactory.GetApplication()
+                        if app:
+                            try:
+                                app.ActivateProject(target_project)
+                                active_after = safe_get_active_project(app)
+                                if active_after:
+                                    after_name = active_after.GetAttribute("loc_name")
+                                    if after_name == target_project:
+                                        self._thread_local.app = app
+                                        return app
+                            except Exception:
+                                pass
+                    else:
+                        raise
                 except Exception:
                     pass
-        except Exception as e:
+        except RuntimeError as e:
+            if "can't be used from other threads" in str(e):
+                # Ошибка многопоточности - пересоздаем app
+                self._thread_local.app = None
+                app = powerfactory.GetApplication()
+                if app:
+                    try:
+                        app.ActivateProject(target_project)
+                        active_after = safe_get_active_project(app)
+                        if active_after:
+                            after_name = active_after.GetAttribute("loc_name")
+                            if after_name == target_project:
+                                self._thread_local.app = app
+                                return app
+                    except Exception:
+                        pass
             raise RuntimeError(
                 f"Ошибка при активации проекта PowerFactory: {e}. "
                 f"Убедитесь, что проект '{target_project}' существует и доступен."
@@ -233,6 +390,7 @@ class PowerFactoryManager:
         Получает список доступных проектов PowerFactory.
         Использует активный проект и пытается получить список через DataFolder.
         Использует кэширование для уменьшения частоты запросов к PowerFactory.
+        При ошибках многопоточности выполняет повторные попытки с пересозданием app.
 
         Returns: 
             List[str]: Список имен доступных проектов
@@ -243,6 +401,10 @@ class PowerFactoryManager:
             (current_time - self._projects_cache_time) < self._cache_ttl):
             print(f"[DEBUG] Используем кэшированный список проектов (возраст: {int(current_time - self._projects_cache_time)} сек)")
             return self._projects_cache.copy()  # Возвращаем копию, чтобы не изменять кэш
+        
+        # Сохраняем старый кэш на случай ошибки многопоточности
+        old_cache = self._projects_cache.copy() if self._projects_cache is not None else None
+        old_cache_time = self._projects_cache_time if self._projects_cache is not None else 0
         
         # Инициализируем COM для текущего потока в STA режиме (если еще не инициализирован)
         # PowerFactory требует STA (Single Threaded Apartment) модель
@@ -256,9 +418,147 @@ class PowerFactoryManager:
                 # COM уже инициализирован в этом потоке - это нормально
                 pass
         
+        # Вспомогательная функция для безопасного получения проектов
+        def safe_get_projects(app_instance, max_retries=3):
+            """Безопасно получает проекты с повторными попытками при ошибках многопоточности."""
+            projects_set = set()
+            
+            for attempt in range(max_retries):
+                try:
+                    # Очищаем thread-local app перед каждой попыткой
+                    if hasattr(self._thread_local, 'app'):
+                        self._thread_local.app = None
+                    
+                    # Метод 1: Получаем проекты текущего пользователя (быстрее)
+                    try:
+                        current_user = app_instance.GetCurrentUser()
+                        if current_user:
+                            projects = current_user.GetContents("*.IntPrj")
+                            if projects:
+                                print(f"[DEBUG] Найдено проектов у текущего пользователя: {len(projects)}")
+                                for proj in projects:
+                                    try:
+                                        name = proj.GetAttribute('loc_name')
+                                        if name:
+                                            projects_set.add(name)
+                                            print(f"[DEBUG] Добавлен проект: {name}")
+                                    except Exception as e:
+                                        print(f"[DEBUG] Ошибка получения имени проекта: {e}")
+                                        pass
+                    except RuntimeError as e:
+                        if "can't be used from other threads" in str(e):
+                            print(f"[DEBUG] Ошибка многопоточности при получении проектов текущего пользователя (попытка {attempt + 1}/{max_retries})")
+                            if attempt < max_retries - 1:
+                                # Пересоздаем app и пробуем снова
+                                import powerfactory  # type: ignore
+                                app_instance = powerfactory.GetApplication()
+                                if app_instance is None:
+                                    break
+                                time.sleep(0.1)  # Небольшая задержка перед повторной попыткой
+                                continue
+                            else:
+                                # Последняя попытка не удалась - возвращаем пустой set, чтобы использовать кэш
+                                print(f"[DEBUG] Все попытки получения проектов не удались из-за ошибки многопоточности")
+                                return set()
+                        else:
+                            raise
+                    
+                    # Если получили проекты, пробуем получить проекты всех пользователей для полноты
+                    if not projects_set:
+                        print("[DEBUG] Проекты не найдены у текущего пользователя, проверяем всех пользователей")
+                        try:
+                            users = app_instance.GetAllUsers()
+                            if users:
+                                print(f"[DEBUG] Найдено пользователей: {len(users)}")
+                                for user in users:
+                                    try:
+                                        user_projects = user.GetContents("*.IntPrj")
+                                        if user_projects:
+                                            print(f"[DEBUG] У пользователя {user} найдено проектов: {len(user_projects)}")
+                                            for proj in user_projects:
+                                                try:
+                                                    name = proj.GetAttribute('loc_name')
+                                                    if name:
+                                                        projects_set.add(name)
+                                                        print(f"[DEBUG] Добавлен проект: {name}")
+                                                except Exception as e:
+                                                    print(f"[DEBUG] Ошибка получения имени проекта: {e}")
+                                                    pass
+                                    except RuntimeError as e:
+                                        if "can't be used from other threads" in str(e):
+                                            print(f"[DEBUG] Ошибка многопоточности при получении проектов пользователя (попытка {attempt + 1}/{max_retries})")
+                                            if attempt < max_retries - 1:
+                                                # Пересоздаем app и пробуем снова
+                                                import powerfactory  # type: ignore
+                                                app_instance = powerfactory.GetApplication()
+                                                if app_instance is None:
+                                                    break
+                                                time.sleep(0.1)
+                                                continue
+                                            else:
+                                                # Последняя попытка не удалась - возвращаем пустой set, чтобы использовать кэш
+                                                print(f"[DEBUG] Все попытки получения проектов не удались из-за ошибки многопоточности")
+                                                return set()
+                                        else:
+                                            raise
+                                    except Exception as e:
+                                        print(f"[DEBUG] Ошибка при получении проектов пользователя: {e}")
+                                        pass
+                        except RuntimeError as e:
+                            if "can't be used from other threads" in str(e):
+                                print(f"[DEBUG] Ошибка многопоточности при получении проектов всех пользователей (попытка {attempt + 1}/{max_retries})")
+                                if attempt < max_retries - 1:
+                                    # Пересоздаем app и пробуем снова
+                                    import powerfactory  # type: ignore
+                                    app_instance = powerfactory.GetApplication()
+                                    if app_instance is None:
+                                        break
+                                    time.sleep(0.1)
+                                    continue
+                                else:
+                                    # Последняя попытка не удалась - возвращаем пустой set, чтобы использовать кэш
+                                    print(f"[DEBUG] Все попытки получения проектов не удались из-за ошибки многопоточности")
+                                    return set()
+                            else:
+                                raise
+                    
+                    # Если получили проекты, возвращаем их
+                    if projects_set:
+                        return projects_set
+                    
+                except RuntimeError as e:
+                    if "can't be used from other threads" in str(e):
+                        if attempt < max_retries - 1:
+                            print(f"[DEBUG] Ошибка многопоточности (попытка {attempt + 1}/{max_retries}), пересоздаем app")
+                            import powerfactory  # type: ignore
+                            app_instance = powerfactory.GetApplication()
+                            if app_instance is None:
+                                break
+                            time.sleep(0.1)
+                            continue
+                        else:
+                            # Последняя попытка не удалась - возвращаем пустой set, чтобы использовать кэш
+                            print(f"[DEBUG] Все попытки получения проектов не удались из-за ошибки многопоточности")
+                            return set()
+                    else:
+                        raise
+                except Exception as e:
+                    print(f"[DEBUG] Исключение при получении проектов: {e}")
+                    import traceback
+                    print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+                    if attempt < max_retries - 1:
+                        import powerfactory  # type: ignore
+                        app_instance = powerfactory.GetApplication()
+                        if app_instance is None:
+                            break
+                        time.sleep(0.1)
+                        continue
+                    break
+            
+            return projects_set
+        
         # Для получения списка проектов всегда создаем новый app
         # Кэшированный app может быть невалиден для текущего потока
-        # Это легкая операция, поэтому не кэшируем app для этого метода
         app = None
         
         try:
@@ -268,97 +568,49 @@ class PowerFactoryManager:
             
             if app is None:
                 print(f"[DEBUG] Не удалось получить app из PowerFactory")
+                # Если есть кэш, используем его
+                if self._projects_cache is not None:
+                    cache_age = int(time.time() - self._projects_cache_time)
+                    if cache_age < self._cache_ttl * 2:
+                        print(f"[DEBUG] Используем кэш, так как не удалось получить app (возраст: {cache_age} сек)")
+                        return self._projects_cache.copy()
                 return []
             
-            available_projects = []
-            projects_set = set()  # Используем set для избежания дубликатов
+            # Получаем проекты с повторными попытками
+            projects_set = safe_get_projects(app)
             
-            # Метод 1: Получаем проекты текущего пользователя (быстрее)
-            try:
-                current_user = app.GetCurrentUser()
-                if current_user:
-                    projects = current_user.GetContents("*.IntPrj")
-                    if projects:
-                        print(f"[DEBUG] Найдено проектов у текущего пользователя: {len(projects)}")
-                        for proj in projects:
-                            try:
-                                name = proj.GetAttribute('loc_name')
-                                if name:
-                                    projects_set.add(name)
-                                    print(f"[DEBUG] Добавлен проект: {name}")
-                            except Exception as e:
-                                print(f"[DEBUG] Ошибка получения имени проекта: {e}")
-                                pass
-                    else:
-                        print("[DEBUG] У текущего пользователя нет проектов")
-                else:
-                    print("[DEBUG] Не удалось получить текущего пользователя")
-            except RuntimeError as e:
-                # Если ошибка многопоточности, используем кэш если есть
-                if "can't be used from other threads" in str(e):
-                    print(f"[DEBUG] Ошибка многопоточности при получении проектов текущего пользователя")
-                    # Очищаем кэш для этого потока
-                    if hasattr(self._thread_local, 'app'):
-                        self._thread_local.app = None
-                    # Если есть кэш, используем его
-                    if self._projects_cache is not None:
-                        cache_age = int(time.time() - self._projects_cache_time)
-                        if cache_age < self._cache_ttl * 2:  # Используем кэш даже если он немного старше
-                            print(f"[DEBUG] Используем кэш из-за ошибки многопоточности (возраст: {cache_age} сек)")
-                            return self._projects_cache.copy()
-                else:
-                    print(f"[DEBUG] RuntimeError при получении проектов текущего пользователя: {e}")
-            except Exception as e:
-                print(f"[DEBUG] Исключение при получении проектов текущего пользователя: {e}")
-                import traceback
-                print(f"[DEBUG] Traceback: {traceback.format_exc()}")
-            
-            # Метод 2: Получаем проекты всех пользователей (для полноты списка)
-            # Пропускаем, если уже получили проекты из текущего пользователя
+            # Если получили пустой set (из-за ошибки многопоточности), используем кэш
             if not projects_set:
-                print("[DEBUG] Проекты не найдены у текущего пользователя, проверяем всех пользователей")
-                try:
-                    users = app.GetAllUsers()
-                    if users:
-                        print(f"[DEBUG] Найдено пользователей: {len(users)}")
-                        for user in users:
-                            try:
-                                projects = user.GetContents("*.IntPrj")
-                                if projects:
-                                    print(f"[DEBUG] У пользователя {user} найдено проектов: {len(projects)}")
-                                    for proj in projects:
-                                        try:
-                                            name = proj.GetAttribute('loc_name')
-                                            if name:
-                                                projects_set.add(name)
-                                                print(f"[DEBUG] Добавлен проект: {name}")
-                                        except Exception as e:
-                                            print(f"[DEBUG] Ошибка получения имени проекта: {e}")
-                                            pass
-                            except Exception as e:
-                                print(f"[DEBUG] Ошибка при получении проектов пользователя: {e}")
-                                pass
+                print("[DEBUG] Не удалось получить проекты из-за ошибки многопоточности, используем кэш")
+                # Сначала проверяем текущий кэш
+                if self._projects_cache is not None:
+                    cache_age = int(time.time() - self._projects_cache_time)
+                    # Используем кэш даже если он очень старый (до 10 минут)
+                    if cache_age < 600:  # 10 минут
+                        print(f"[DEBUG] Используем кэш из-за ошибки многопоточности (возраст: {cache_age} сек)")
+                        return self._projects_cache.copy()
                     else:
-                        print("[DEBUG] Не найдено пользователей")
-                except RuntimeError as e:
-                    # Если ошибка многопоточности, используем кэш если есть
-                    if "can't be used from other threads" in str(e):
-                        print(f"[DEBUG] Ошибка многопоточности при получении проектов всех пользователей")
-                        # Очищаем кэш для этого потока
-                        if hasattr(self._thread_local, 'app'):
-                            self._thread_local.app = None
-                        # Если есть кэш, используем его
-                        if self._projects_cache is not None:
-                            cache_age = int(time.time() - self._projects_cache_time)
-                            if cache_age < self._cache_ttl * 2:  # Используем кэш даже если он немного старше
-                                print(f"[DEBUG] Используем кэш из-за ошибки многопоточности (возраст: {cache_age} сек)")
-                                return self._projects_cache.copy()
+                        print(f"[DEBUG] Кэш слишком старый ({cache_age} сек), но используем его из-за ошибки многопоточности")
+                        return self._projects_cache.copy()
+                # Если текущий кэш отсутствует, проверяем старый кэш (который был до попытки обновления)
+                elif old_cache is not None:
+                    cache_age = int(time.time() - old_cache_time)
+                    # Используем старый кэш даже если он очень старый (до 10 минут)
+                    if cache_age < 600:  # 10 минут
+                        print(f"[DEBUG] Используем старый кэш из-за ошибки многопоточности (возраст: {cache_age} сек)")
+                        # Восстанавливаем кэш
+                        self._projects_cache = old_cache.copy()
+                        self._projects_cache_time = old_cache_time
+                        return old_cache.copy()
                     else:
-                        print(f"[DEBUG] RuntimeError при получении проектов всех пользователей: {e}")
-                except Exception as e:
-                    print(f"[DEBUG] Исключение при получении проектов всех пользователей: {e}")
-                    import traceback
-                    print(f"[DEBUG] Traceback: {traceback.format_exc()}")
+                        print(f"[DEBUG] Старый кэш слишком старый ({cache_age} сек), но используем его из-за ошибки многопоточности")
+                        # Восстанавливаем кэш
+                        self._projects_cache = old_cache.copy()
+                        self._projects_cache_time = old_cache_time
+                        return old_cache.copy()
+                else:
+                    print("[DEBUG] Кэш отсутствует, возвращаем пустой список")
+                    return []
             
             # Преобразуем set в отсортированный список
             available_projects = sorted(list(projects_set))
@@ -381,6 +633,53 @@ class PowerFactoryManager:
             
         except ModuleNotFoundError as e:
             print(f"ModuleNotFoundError: PowerFactory модуль не найден. Убедитесь, что PowerFactory установлен и запущен. {e}")
+            # Если есть кэш, используем его
+            if self._projects_cache is not None:
+                cache_age = int(time.time() - self._projects_cache_time)
+                if cache_age < self._cache_ttl * 2:
+                    print(f"[DEBUG] Используем кэш из-за ModuleNotFoundError (возраст: {cache_age} сек)")
+                    return self._projects_cache.copy()
+            return []
+        except RuntimeError as e:
+            if "can't be used from other threads" in str(e):
+                print(f"[DEBUG] Критическая ошибка многопоточности при получении списка проектов")
+                # Сначала проверяем текущий кэш
+                if self._projects_cache is not None:
+                    cache_age = int(time.time() - self._projects_cache_time)
+                    # Используем кэш даже если он очень старый (до 10 минут)
+                    if cache_age < 600:  # 10 минут
+                        print(f"[DEBUG] Используем кэш из-за ошибки многопоточности (возраст: {cache_age} сек)")
+                        return self._projects_cache.copy()
+                    else:
+                        print(f"[DEBUG] Кэш слишком старый ({cache_age} сек), но используем его из-за ошибки многопоточности")
+                        return self._projects_cache.copy()
+                # Если текущий кэш отсутствует, проверяем старый кэш (который был до попытки обновления)
+                elif old_cache is not None:
+                    cache_age = int(time.time() - old_cache_time)
+                    # Используем старый кэш даже если он очень старый (до 10 минут)
+                    if cache_age < 600:  # 10 минут
+                        print(f"[DEBUG] Используем старый кэш из-за ошибки многопоточности (возраст: {cache_age} сек)")
+                        # Восстанавливаем кэш
+                        self._projects_cache = old_cache.copy()
+                        self._projects_cache_time = old_cache_time
+                        return old_cache.copy()
+                    else:
+                        print(f"[DEBUG] Старый кэш слишком старый ({cache_age} сек), но используем его из-за ошибки многопоточности")
+                        # Восстанавливаем кэш
+                        self._projects_cache = old_cache.copy()
+                        self._projects_cache_time = old_cache_time
+                        return old_cache.copy()
+            # Логируем ошибку для отладки
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Ошибка при получении списка проектов PowerFactory: {e}")
+            print(f"Traceback: {error_trace}")
+            # Если есть кэш, используем его
+            if self._projects_cache is not None:
+                cache_age = int(time.time() - self._projects_cache_time)
+                if cache_age < self._cache_ttl * 2:
+                    print(f"[DEBUG] Используем кэш после ошибки (возраст: {cache_age} сек)")
+                    return self._projects_cache.copy()
             return []
         except Exception as e:
             # Логируем ошибку для отладки
@@ -388,6 +687,12 @@ class PowerFactoryManager:
             error_trace = traceback.format_exc()
             print(f"Ошибка при получении списка проектов PowerFactory: {e}")
             print(f"Traceback: {error_trace}")
+            # Если есть кэш, используем его
+            if self._projects_cache is not None:
+                cache_age = int(time.time() - self._projects_cache_time)
+                if cache_age < self._cache_ttl * 2:
+                    print(f"[DEBUG] Используем кэш после исключения (возраст: {cache_age} сек)")
+                    return self._projects_cache.copy()
             return []
     
     def check_project_available(self, project_name):
