@@ -129,8 +129,50 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         half_set2_topology_display = request.session.get(
             "half_set2_topology_display"
         )
+        # Получаем подрежимы из сессии
         half_set1_submodes = request.session.get("half_set1_submodes")
         half_set2_submodes = request.session.get("half_set2_submodes")
+        
+        print(f"[DEBUG] Подрежимы из сессии - half_set1: {half_set1_submodes is not None}, half_set2: {half_set2_submodes is not None}")
+        
+        # Если подрежимы отсутствуют в сессии, пытаемся загрузить из БД
+        if not half_set1_submodes and half_set1:
+            try:
+                from calculation.models import HalfSetSubmode
+                db_submodes = HalfSetSubmode.objects.filter(
+                    protection_half_set=half_set1
+                ).order_by('id')
+                if db_submodes.exists():
+                    half_set1_submodes = [
+                        {
+                            'submode_name': s.submode_name,
+                            'submode_elements': s.submode_elements
+                        }
+                        for s in db_submodes
+                    ]
+                    # Сохраняем в сессию для последующих запросов
+                    request.session["half_set1_submodes"] = half_set1_submodes
+            except Exception as e:
+                print(f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set1: {e}")
+        
+        if not half_set2_submodes and half_set2:
+            try:
+                from calculation.models import HalfSetSubmode
+                db_submodes = HalfSetSubmode.objects.filter(
+                    protection_half_set=half_set2
+                ).order_by('id')
+                if db_submodes.exists():
+                    half_set2_submodes = [
+                        {
+                            'submode_name': s.submode_name,
+                            'submode_elements': s.submode_elements
+                        }
+                        for s in db_submodes
+                    ]
+                    # Сохраняем в сессию для последующих запросов
+                    request.session["half_set2_submodes"] = half_set2_submodes
+            except Exception as e:
+                print(f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set2: {e}")
 
         line_data = request.session.get("line_data")
 
@@ -512,10 +554,49 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             print(half_set2_submodes)
 
             # Сохраняем подрежимы в сессии
-            request.session["half_set1_submodes"] = half_set1_submodes
-            request.session["half_set2_submodes"] = half_set2_submodes
+            # Убеждаемся, что подрежимы - это список словарей (сериализуемый формат)
+            if half_set1_submodes:
+                # Преобразуем в список словарей, если это необходимо
+                half_set1_submodes_list = []
+                for submode in half_set1_submodes:
+                    if isinstance(submode, dict):
+                        half_set1_submodes_list.append({
+                            'submode_name': str(submode.get('submode_name', '')),
+                            'submode_elements': list(submode.get('submode_elements', []))
+                        })
+                    else:
+                        # Если это объект модели, преобразуем в словарь
+                        half_set1_submodes_list.append({
+                            'submode_name': str(getattr(submode, 'submode_name', '')),
+                            'submode_elements': list(getattr(submode, 'submode_elements', []))
+                        })
+                request.session["half_set1_submodes"] = half_set1_submodes_list
+                print(f"[DEBUG] Сохранено подрежимов для half_set1: {len(half_set1_submodes_list)}")
+            
+            if half_set2_submodes:
+                # Преобразуем в список словарей, если это необходимо
+                half_set2_submodes_list = []
+                for submode in half_set2_submodes:
+                    if isinstance(submode, dict):
+                        half_set2_submodes_list.append({
+                            'submode_name': str(submode.get('submode_name', '')),
+                            'submode_elements': list(submode.get('submode_elements', []))
+                        })
+                    else:
+                        # Если это объект модели, преобразуем в словарь
+                        half_set2_submodes_list.append({
+                            'submode_name': str(getattr(submode, 'submode_name', '')),
+                            'submode_elements': list(getattr(submode, 'submode_elements', []))
+                        })
+                request.session["half_set2_submodes"] = half_set2_submodes_list
+                print(f"[DEBUG] Сохранено подрежимов для half_set2: {len(half_set2_submodes_list)}")
+            
+            # Явно сохраняем сессию
+            request.session.modified = True
+            print(f"[DEBUG] Сессия сохранена. half_set1_submodes в сессии: {request.session.get('half_set1_submodes') is not None}")
+            print(f"[DEBUG] Сессия сохранена. half_set2_submodes в сессии: {request.session.get('half_set2_submodes') is not None}")
 
-            messages.success(request, "Подрежимы успешно сгенерированы.")
+            messages.success(request, f"Подрежимы успешно сгенерированы. Полукомплект 1: {len(half_set1_submodes) if half_set1_submodes else 0}, Полукомплект 2: {len(half_set2_submodes) if half_set2_submodes else 0}.")
 
         return redirect("calculation")
 
@@ -566,13 +647,23 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         project_name = request.session.get('pf_project_name')
         app = self.pf_manager.get_application(project_name=project_name)
 
-        # Выполняем расчет токов КЗ
+        # Выполняем расчет токов КЗ на противоположной стороне
         fault_service.perform_fault_calculation(
             app, half_set1, half_set1_submodes, calculation_meta
         )
         fault_service.perform_fault_calculation(
             app, half_set2, half_set2_submodes, calculation_meta
         )
+
+        # Выполняем расчет КЗ на подстанциях ответвлений (для расчета X откл отв)
+        # Если у линии есть ответвления, моделируем КЗ на всех подстанциях ответвлений
+        if line.branches.filter(is_active=True).exists():
+            fault_service.perform_branch_fault_calculation(
+                app, half_set1, half_set1_submodes, calculation_meta
+            )
+            fault_service.perform_branch_fault_calculation(
+                app, half_set2, half_set2_submodes, calculation_meta
+            )
 
         # Освобождаем COM-объект
         del app

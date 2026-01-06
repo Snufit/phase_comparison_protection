@@ -300,7 +300,7 @@
                     data-bs-toggle="modal" data-bs-target="#submodesHalfSet2">
                     Подрежимы
                     <span class="badge bg-primary rounded-pill">
-                        {{ half_set2_submodes|length }}
+                        {% if half_set2_submodes %}{{ half_set2_submodes|length }}{% else %}0{% endif %}
                     </span>
                 </li>
             </ul>
@@ -418,13 +418,19 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
+                    {% if half_set1_submodes %}
                     <ul class="list-group">
                         {% for submode in half_set1_submodes %}
                         <li class="list-group-item">
-                            {{ submode.submode_name }}
+                            {{ submode.submode_name|default:submode.submode_name }}
                         </li>
                         {% endfor %}
                     </ul>
+                    {% else %}
+                    <div class="alert alert-info">
+                        Подрежимы не сгенерированы. Используйте "Генератор подрежимов" для их создания.
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -441,13 +447,19 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
+                    {% if half_set2_submodes %}
                     <ul class="list-group">
                         {% for submode in half_set2_submodes %}
                         <li class="list-group-item">
-                            {{ submode.submode_name }}
+                            {{ submode.submode_name|default:submode.submode_name }}
                         </li>
                         {% endfor %}
                     </ul>
+                    {% else %}
+                    <div class="alert alert-info">
+                        Подрежимы не сгенерированы. Используйте "Генератор подрежимов" для их создания.
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
