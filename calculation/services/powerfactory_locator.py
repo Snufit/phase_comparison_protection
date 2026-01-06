@@ -23,14 +23,13 @@ def _get_powerfactory_app():
         return _app
 
     if _powerfactory_module is None:
-try:
-    import powerfactory  # type: ignore
-
+        try:
+            import powerfactory  # type: ignore
             _powerfactory_module = powerfactory
-except ModuleNotFoundError:
-    raise ModuleNotFoundError(
-        "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
-    )
+        except ModuleNotFoundError:
+            raise ModuleNotFoundError(
+                "Сервер PowerFactory недоступен, пожалуйста, обратитесь к администратору."
+            )
 
     _app = _powerfactory_module.GetApplication()
     _app.ActivateProject(PROJECT_NAME)
