@@ -148,3 +148,189 @@
     scrollbar-width: thin !important;
     scrollbar-color: #888 #f1f1f1 !important;
 }
+
+/* Стили для модального окна настройки коэффициентов */
+#modalCalculationFactors .card {
+    border: 1px solid #dee2e6;
+}
+
+#modalCalculationFactors .card-header {
+    font-weight: 600;
+}
+
+#modalCalculationFactors .border {
+    background-color: #f8f9fa;
+}
+
+#modalCalculationFactors .text-primary {
+    font-weight: 600;
+}
+
+#modalCalculationFactors .form-label {
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+#modalCalculationFactors .text-muted {
+    font-size: 0.875rem;
+}
+
+#modalCalculationFactors .modal-xl {
+    max-width: 1200px;
+}
+
+/* Кастомный стиль скроллбара для модального окна настройки коэффициентов */
+#modalCalculationFactors .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 15px;
+}
+
+/* Стиль скроллбара для WebKit браузеров (Chrome, Edge, Safari) */
+#modalCalculationFactors .modal-body::-webkit-scrollbar {
+    width: 10px;
+}
+
+#modalCalculationFactors .modal-body::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#modalCalculationFactors .modal-body::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+#modalCalculationFactors .modal-body::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Стиль скроллбара для Firefox */
+#modalCalculationFactors .modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: #888 #f1f1f1;
+}
+
+/* Кастомный стиль скроллбара для модальных окон с подрежимами */
+#submodesHalfSet1 .modal-body,
+#submodesHalfSet2 .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 15px;
+}
+
+/* Стиль скроллбара для WebKit браузеров (Chrome, Edge, Safari) */
+#submodesHalfSet1 .modal-body::-webkit-scrollbar,
+#submodesHalfSet2 .modal-body::-webkit-scrollbar {
+    width: 10px;
+}
+
+#submodesHalfSet1 .modal-body::-webkit-scrollbar-track,
+#submodesHalfSet2 .modal-body::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#submodesHalfSet1 .modal-body::-webkit-scrollbar-thumb,
+#submodesHalfSet2 .modal-body::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+#submodesHalfSet1 .modal-body::-webkit-scrollbar-thumb:hover,
+#submodesHalfSet2 .modal-body::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Стиль скроллбара для Firefox */
+#submodesHalfSet1 .modal-body,
+#submodesHalfSet2 .modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: #888 #f1f1f1;
+}
+
+/* Кастомный стиль стрелок для полей input type="number" */
+/* Для WebKit браузеров (Chrome, Edge, Safari) */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    height: 20px;
+    width: 16px;
+    opacity: 0.3;
+    cursor: pointer;
+    margin: 2px;
+    filter: brightness(1.5);
+    transition: opacity 0.2s ease;
+}
+
+input[type="number"]::-webkit-inner-spin-button {
+    background: transparent;
+    border-radius: 4px;
+    border: none;
+}
+
+input[type="number"]:hover::-webkit-inner-spin-button,
+input[type="number"]:focus::-webkit-inner-spin-button {
+    opacity: 0.6;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+}
+
+input[type="number"]::-webkit-inner-spin-button:hover {
+    opacity: 0.9;
+    background: #e9ecef;
+    border-color: #ced4da;
+}
+
+input[type="number"]::-webkit-inner-spin-button:active {
+    opacity: 1;
+    background: #dee2e6;
+    border-color: #adb5bd;
+}
+
+/* Для Firefox */
+input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+/* Показываем стрелки при наведении для Firefox (через кастомные кнопки) */
+input[type="number"]:hover {
+    -moz-appearance: number-input;
+    appearance: number-input;
+}
+
+/* ============================================
+   Стили для модального окна управления методиками
+   ============================================ */
+
+/* Кастомный скроллбар для модального окна */
+#modalMethodologies .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 15px;
+}
+
+/* Стиль скроллбара для WebKit браузеров (Chrome, Edge, Safari) */
+#modalMethodologies .modal-body::-webkit-scrollbar {
+    width: 10px;
+}
+
+#modalMethodologies .modal-body::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#modalMethodologies .modal-body::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+#modalMethodologies .modal-body::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Стиль скроллбара для Firefox */
+#modalMethodologies .modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: #888 #f1f1f1;
+}

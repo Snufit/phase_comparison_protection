@@ -49,6 +49,13 @@ class MethodologyDocument(models.Model):
         """
         return self.name_file
 
+    def get_filename(self):
+        """
+        :return: Только имя файла без пути.
+        """
+        import os
+        return os.path.basename(self.name_file)
+
 
 class Manufacturer(models.Model):
     """Модель производителя устройства РЗА."""

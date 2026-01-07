@@ -4,7 +4,7 @@ import time
 from functools import wraps
 
 try:
-    import pythoncom
+    import pythoncom  # type: ignore[import-untyped]
 except ImportError:
     pythoncom = None
 
@@ -82,7 +82,7 @@ class PowerFactoryManager:
         # ВАЖНО: не используем кэшированный app без проверки, так как он может быть из другого потока
         # Всегда создаем новый app для каждого запроса, чтобы избежать проблем с многопоточностью
         # Thread-local storage может не работать правильно с PowerFactory COM объектами
-        self._thread_local.app = None
+                self._thread_local.app = None
         
         # Пытаемся импортировать модуль PowerFactory
         try:
@@ -155,7 +155,7 @@ class PowerFactoryManager:
                     f"Ошибка при получении активного проекта PowerFactory: {e}. "
                     "Убедитесь, что PowerFactory запущен и доступен."
                 )
-        
+
         # Смотрим, какой проект сейчас активен
         # Используем повторные попытки с пересозданием app при ошибках многопоточности
         max_retries = 3
@@ -169,13 +169,13 @@ class PowerFactoryManager:
                 # Если получили None (ошибка многопоточности), пересоздаем app
                 if attempt < max_retries - 1:
                     print(f"[DEBUG] Ошибка многопоточности при получении активного проекта (попытка {attempt + 1}/{max_retries})")
-                    self._thread_local.app = None
-                    app = powerfactory.GetApplication()
-                    if app is None:
-                        raise RuntimeError(
-                            "Не удалось получить приложение PowerFactory. "
-                            "Убедитесь, что PowerFactory запущен."
-                        )
+                self._thread_local.app = None
+                app = powerfactory.GetApplication()
+                if app is None:
+                    raise RuntimeError(
+                        "Не удалось получить приложение PowerFactory. "
+                        "Убедитесь, что PowerFactory запущен."
+                    )
                     time.sleep(0.1)  # Небольшая задержка перед повторной попыткой
                     continue
                 else:
@@ -256,7 +256,7 @@ class PowerFactoryManager:
         # 1. Если уже активен нужный проект — сохраняем в thread-local и возвращаем app
         if active_name == target_project:
             self._thread_local.app = app
-            return app
+        return app
 
         # 2. Если активен другой проект — пробуем активировать нужный
         if active_name and active_name != target_project:

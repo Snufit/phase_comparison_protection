@@ -1,98 +1,126 @@
 # Конфигурационный словарь
+# Сопоставление органов защиты с их коэффициентами и функциями расчета
 SETTINGS_CALCULATION_MAP = {
-    'IЛ БЛОК': {    # НАЗВАНИЕ_ОРГАНА
-        'calculation_factors': {    # Коэффициенты расчета
-            'phase_current_diff_block_grading_factor': {    # НАЗВАНИЕ_КОЭФФИЦИЕНТА
-                'label': 'Коэффициент отстройки',   # Название для пользователя
-                'default_value': 1.3    # значение_по_умолчанию
+    'IЛ БЛОК': { # НАЗВАНИЕ_ОРГАНА
+        'calculation_factors': { # Коэффициенты расчета
+            'il_grading_factor': { # НАЗВАНИЕ_КОЭФФИЦИЕНТА
+                'label': 'Коэффициент отстройки', # Название для пользователя
+                'default_value': 1.3 # значение_по_умолчанию
             },
-            'phase_current_diff_block_reset_factor': {
+            'il_reset_factor': {
                 'label': 'Коэффициент возврата',
                 'default_value': 0.9
             }
         },
-        'calculation_function': '_calculate_phase_current_diff_block'    # Функция расчета
+        'calculation_function': 'calculate_il_block'
     },
     'IЛ ОТКЛ': {
         'calculation_factors': {
-            'phase_current_diff_break_matching_factor': {
+            'il_matching_factor': {
                 'label': 'Коэффициент согласования',
                 'default_value': 1.4
             }
         },
-        'calculation_function': '_calculate_phase_current_diff_break'
+        'calculation_function': 'calculate_il_break'
     },
     'I2 БЛОК': {
         'calculation_factors': {
-            'neg_sequence_current_block_imbalance_factor': {
+            'i2_imbalance_factor': {
                 'label': 'Коэффициент небаланса',
                 'default_value': 0.05
             },
-            'neg_sequence_current_block_grading_factor': {
-                'label': 'Коэффициент небаланса',
-                'default_value': 1.3
-            },
-            'neg_sequence_current_block_reset_factor': {
-                'label': 'Коэффициент возврата',
-                'default_value': 0.9
-            }
-        },
-        'calculation_function': '_calculate_neg_sequence_current_block'
-    },
-    'I2 ОТКЛ': {
-        'calculation_factors': {
-            'neg_sequence_current_break_matching_factor': {
-                'label': 'Коэффициент согласования',
-                'default_value': 1.4
-            }
-        },
-        'calculation_function': '_calculate_neg_sequence_current_break'
-    },
-    'DI1 БЛОК': {
-        'calculation_factors': {
-            'pos_sequence_current_increment_block_matching_factor': {
-                'label': 'Коэффициент согласования',
-                'default_value': 1.4
-            }
-        },
-        'calculation_function':
-            '_calculate_pos_sequence_current_increment_block'
-    },
-    'DI1 ОТКЛ': {
-        'calculation_function':
-            '_calculate_pos_sequence_current_increment_break'
-    },
-    'DI2 БЛОК': {
-        'calculation_function': '_calculate_neg_sequence_current_block'
-    },
-    'DI2 ОТКЛ': {
-        'calculation_function': '_calculate_neg_sequence_current_break'
-    },
-    'U2 БЛОК': {
-        'calculation_factors': {
-            'neg_sequence_voltage_block_grading_factor': {
+            'i2_grading_factor': {
                 'label': 'Коэффициент отстройки',
                 'default_value': 1.3
             },
-            'neg_sequence_voltage_block_reset_factor': {
+            'i2_reset_factor': {
+                'label': 'Коэффициент возврата',
+                'default_value': 0.9
+            }
+        },
+        'calculation_function': 'calculate_i2_block'
+    },
+    'I2 ОТКЛ': {
+        'calculation_factors': {
+            'i2_matching_factor': {
+                'label': 'Коэффициент согласования',
+                'default_value': 1.4
+            }
+        },
+        'calculation_function': 'calculate_i2_break'
+    },
+    '3I0 БЛОК': {
+        'calculation_factors': {
+            'i0_imbalance_factor': {
+                'label': 'Коэффициент небаланса',
+                'default_value': 0.05
+            },
+            'i0_block_grading_factor': {
+                'label': 'Коэффициент отстройки',
+                'default_value': 1.2
+            },
+            'i0_block_reset_factor': {
+                'label': 'Коэффициент возврата',
+                'default_value': 0.95
+            }
+        },
+        'calculation_function': 'calculate_3i0_block'
+    },
+    '3I0 ОТКЛ': {
+        'calculation_factors': {
+            'i0_break_grading_factor': {
+                'label': 'Коэффициент отстройки',
+                'default_value': 1.5
+            }
+        },
+        'calculation_function': 'calculate_3i0_break'
+    },
+    'DI1 БЛОК': {
+        'calculation_factors': {
+            'di1_matching_factor': {
+                'label': 'Коэффициент согласования',
+                'default_value': 1.4
+            }
+        },
+        'calculation_function': 'calculate_di1_block'
+    },
+    'DI1 ОТКЛ': {
+        'calculation_factors': {},
+        'calculation_function': 'calculate_di1_break'
+    },
+    'DI2 БЛОК': {
+        'calculation_factors': {},
+        'calculation_function': 'calculate_i2_block'
+    },
+    'DI2 ОТКЛ': {
+        'calculation_factors': {},
+        'calculation_function': 'calculate_i2_break'
+    },
+    'U2 БЛОК': {
+        'calculation_factors': {
+            'u2_grading_factor': {
+                'label': 'Коэффициент отстройки',
+                'default_value': 1.3
+            },
+            'u2_reset_factor': {
                 'label': 'Коэффициент возврата',
                 'default_value': 0.9
             },
-            'neg_sequence_imbalance_voltage': {
+            'u2_imbalance_voltage': {
                 'label': 'Напряжение небаланса',
                 'default_value': 1.5
-            },
+            }
         },
-        'calculation_function': '_calculate_neg_sequence_voltage_block'
+        'calculation_function': 'calculate_u2_block'
     },
     'U2 ОТКЛ': {
         'calculation_factors': {
-            'neg_sequence_voltage_break_matching_factor': {
+            'u2_matching_factor': {
                 'label': 'Коэффициент согласования',
                 'default_value': 2.0
             }
         },
-        'calculation_function': '_calculate_neg_sequence_voltage_break'
+        'calculation_function': 'calculate_u2_break'
     },
     'K МАН': {
         'calculation_factors': {
@@ -101,9 +129,79 @@ SETTINGS_CALCULATION_MAP = {
                 'default_value': 1.5
             }
         },
-        'calculation_function': '_calculate_manipulation_factor'
+        'calculation_function': 'calculate_manipulation_factor'
     },
     'УГОЛ БЛОК': {
-        'calculation_function': '_calculate_blocking_angle'
+        'calculation_factors': {},
+        'calculation_function': 'calculate_blocking_angle'
+    },
+    'РТНП/3I0_M0': {
+        'calculation_factors': {
+            'rtnp_grading_factor': {
+                'label': 'Коэффициент отстройки',
+                'default_value': 1.25
+            },
+            'rtnp_reset_factor': {
+                'label': 'Коэффициент возврата',
+                'default_value': 0.9
+            },
+            'rtnp_imbalance_factor': {
+                'label': 'Коэффициент небаланса',
+                'default_value': 0.05
+            }
+        },
+        'calculation_function': 'calculate_rtnp'
+    },
+    'РННП/3U0_M0': {
+        'calculation_factors': {
+            'rnnp_grading_factor': {
+                'label': 'Коэффициент отстройки',
+                'default_value': 1.25
+            },
+            'rnnp_reset_factor': {
+                'label': 'Коэффициент возврата',
+                'default_value': 0.9
+            },
+            'rnnp_imbalance_voltage': {
+                'label': 'Напряжение небаланса (вторичное, В)',
+                'default_value': 1.5
+            }
+        },
+        'calculation_function': 'calculate_rnnp'
+    },
+    'R ОТКЛ': {
+        'calculation_factors': {
+            'r_break_reliability_factor': {
+                'label': 'Коэффициент надежности',
+                'default_value': 1.6
+            },
+            'load_angle': {
+                'label': 'Угол нагрузки, град',
+                'default_value': 30.0
+            }
+        },
+        'calculation_function': 'calculate_r_break'
+    },
+    'X ОТКЛ': {
+        'calculation_factors': {
+            'x_break_branch_factor': {
+                'label': 'Коэффициент для расчета по ответвлениям',
+                'default_value': 1.5
+            }
+        },
+        'calculation_function': 'calculate_x_break'
+    },
+    'R ОТВ': {
+        'calculation_factors': {},
+        'calculation_function': 'calculate_r_otv'
+    },
+    'X ОТВ': {
+        'calculation_factors': {
+            'x_otv_reliability_factor': {
+                'label': 'Коэффициент надежности',
+                'default_value': 0.85
+            }
+        },
+        'calculation_function': 'calculate_x_otv'
     }
 }

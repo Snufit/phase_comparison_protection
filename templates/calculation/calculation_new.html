@@ -1,4 +1,5 @@
 {% extends "main/layout.html" %}
+{% load l10n %}
 {% block title %}Расчет{% endblock title %}
 {% block content %}
 
@@ -124,9 +125,41 @@
                 $('#id_line_type_filter, #id_voltage_filter').on('change', function () {
                     updateLineList();
                 });
+
+                // Автоматическое обновление ТН при выборе ЛЭП
+                $('#id_line').on('change', function () {
+                    const lineId = $(this).val();
+                    const vtSelect = $('#id_vt');
+
+                    if (lineId) {
+                        // Запрашиваем подходящий ТН для выбранной ЛЭП
+                        $.ajax({
+                            url: '{% url "get_line_vt_ajax" %}',
+                            type: 'GET',
+                            data: {
+                                'line_id': lineId
+                            },
+                            success: function (response) {
+                                if (response.success && response.vt_id) {
+                                    // Устанавливаем найденный ТН
+                                    vtSelect.val(response.vt_id).trigger('change');
+                                } else {
+                                    // Если ТН не найден, очищаем выбор (но оставляем возможность выбрать вручную)
+                                    // Не очищаем, чтобы пользователь мог выбрать вручную
+                                }
+                            },
+                            error: function () {
+                                console.error('Ошибка при получении ТН для ЛЭП');
+                            }
+                        });
+                    } else {
+                        // Если ЛЭП не выбрана, очищаем ТН
+                        vtSelect.val(null).trigger('change');
+                    }
+                });
             });
         </script>
-        <button type="submit" name="action" value="select_line" class="btn btn-primary btn-sm">Подтвердить</button>
+        <button type="submit" name="action" value="select_line" class="btn btn-outline-primary btn-sm">Подтвердить</button>
     </form>
 
 
@@ -157,15 +190,11 @@
                     <p><strong>Сопротивление прямой последовательности, Ом: </strong>
                         {% if line.r1 is not None and line.x1 is not None %}
                         {{ line.r1|floatformat:2 }}+j{{ line.x1|floatformat:2 }}
-                        {% else %}
-                        &mdash;
                         {% endif %}
                     </p>
                     <p><strong>Сопротивление нулевой последовательности, Ом: </strong>
                         {% if line.r0 is not None and line.x0 is not None %}
                         {{ line.r0|floatformat:2 }}+j{{ line.x0|floatformat:2 }}
-                        {% else %}
-                        &mdash;
                         {% endif %}
                     </p>
                     {% if branch_substations %}
@@ -195,8 +224,6 @@
                     <p><strong>Производитель: </strong>
                         {% if protection_device.manufacturer_fk %}
                         {{ protection_device.manufacturer_fk.name }}
-                        {% else %}
-                        &mdash;
                         {% endif %}
                     </p>
                     {% if methodology %}
@@ -210,12 +237,20 @@
                         <i class="bi bi-calendar3"></i> Дата загрузки: {{ methodology.created_at|date:"d.m.Y H:i" }}
                     </p>
                     {% endif %}
+                    {% if protection_device %}
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                            data-bs-target="#modalMethodologies">
+                            <i class="bi bi-gear"></i> Управление методиками
+                        </button>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
 
             <div class="row mt-3">
                 <div class="col-6">
-                    <button type="button" class="btn btn-primary w-100" data-bs-toggle="modal"
+                    <button type="button" class="btn btn-outline-primary w-100" data-bs-toggle="modal"
                         data-bs-target="#modalCalculationFactors">
                         Настроить коэффициенты
                     </button>
@@ -224,7 +259,7 @@
                     <form method="post" id="calculation-form" action="{% url 'calculation' %}">
                         {% csrf_token %}
                         <button type="submit" name="action" value="calculate_settings"
-                            class="btn btn-outline-primary w-100" id="calculation-button">
+                            class="btn btn-primary w-100" id="calculation-button">
                             Выполнить расчет
                         </button>
                     </form>
@@ -307,7 +342,7 @@
 
             <!-- Кнопка генератора подрежимов, выровненная по правому краю -->
             <div class="text-end mt-2">
-                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalSubmodes">
+                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalSubmodes">
                     Генератор подрежимов
                 </button>
             </div>
@@ -502,122 +537,478 @@
     <!-- Модальное окно для ввода коэффициентов -->
     <div class="modal fade" id="modalCalculationFactors" tabindex="-1" aria-labelledby="modalCalculationFactors"
         aria-hidden="true">
-        <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-dialog modal-dialog-scrollable modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
-                        КОНФИГУРАЦИЯ РАСЧЕТА
+                        <strong>НАСТРОЙКА КОЭФФИЦИЕНТОВ РАСЧЕТА</strong>
                     </h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
                     <form method="post" id="calculationForm" action="{% url 'calculation' %}">
                         {% csrf_token %}
-                        <div class="container px-3">
-                            <h5><strong>Общие параметры</strong></h5>
-                            <div class="mb-2">
-                                {{ calculation_form.load_current.label_tag }}
-                                {{ calculation_form.load_current }}
-                            </div>
-                            <fieldset>
-                                <label class="form-label" for="readOnlyInput">Длина ЛЭП, км</label>
-                                <input class="form-control" id="readOnlyInput" type="text"
-                                    placeholder="{{ line_data.length }}" readonly>
-                            </fieldset>
-                        </div>
 
-                        <hr>
-
-                        <div class="container px-3">
-                            <h5><strong>Органы с пуском по векторной разности фазных токов</strong></h5>
-                            <div class="mb-2">
-                                {{ calculation_form.il_grading_factor.label_tag }}
-                                {{ calculation_form.il_grading_factor }}
+                        <!-- Общие параметры -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0"><strong>Общие параметры</strong></h6>
                             </div>
-                            <div class="mb-2">
-                                {{ calculation_form.il_reset_factor.label_tag }}
-                                {{ calculation_form.il_reset_factor }}
-                            </div>
-                            <div class="mb-2">
-                                {{ calculation_form.il_matching_factor.label_tag }}
-                                {{ calculation_form.il_matching_factor }}
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        {{ calculation_form.load_current.label_tag }}
+                                        {{ calculation_form.load_current }}
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <hr>
-
-                        <div class="container px-3">
-                            <h5><strong>Органы с пуском по току обратной последовательности</strong></h5>
-                            <div class="mb-2">
-                                {{ calculation_form.i2_imbalance_factor.label_tag }}
-                                {{ calculation_form.i2_imbalance_factor }}
+                        <!-- Органы защиты по категориям -->
+                        {% for category, organs in organs_data.items %}
+                        {% if organs %}
+                        <div class="card mb-3">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0"><strong>{{ category }}</strong></h6>
                             </div>
-                            <div class="mb-2">
-                                {{ calculation_form.i2_grading_factor.label_tag }}
-                                {{ calculation_form.i2_grading_factor }}
-                            </div>
-                            <div class="mb-2">
-                                {{ calculation_form.i2_reset_factor.label_tag }}
-                                {{ calculation_form.i2_reset_factor }}
-                            </div>
-                            <div class="mb-2">
-                                {{ calculation_form.i2_matching_factor.label_tag }}
-                                {{ calculation_form.i2_matching_factor }}
-                            </div>
-                        </div>
-
-                        <hr>
-
-                        <div class="container px-3">
-                            <h5><strong>Органы с пуском по приращению тока прямой последовательности</strong></h5>
-                            <div class="mb-2">
-                                {{ calculation_form.di1_matching_factor.label_tag }}
-                                {{ calculation_form.di1_matching_factor }}
-                            </div>
-                        </div>
-
-                        <hr>
-
-                        <div class="container px-3">
-                            <h5><strong>Органы с пуском по напряжению обратной последовательности</strong></h5>
-                            <div class="mb-2">
-                                {{ calculation_form.u2_imbalance_voltage.label_tag }}
-                                {{ calculation_form.u2_imbalance_voltage }}
-                            </div>
-                            <div class="mb-2">
-                                {{ calculation_form.u2_grading_factor.label_tag }}
-                                {{ calculation_form.u2_grading_factor }}
-                            </div>
-                            <div class="mb-2">
-                                {{ calculation_form.u2_reset_factor.label_tag }}
-                                {{ calculation_form.u2_reset_factor }}
-                            </div>
-                            <div class="mb-2">
-                                {{ calculation_form.u2_matching_factor.label_tag }}
-                                {{ calculation_form.u2_matching_factor }}
-                            </div>
-                        </div>
-
-                        <hr>
-
-                        <div class="container px-3">
-                            <h5><strong>Орган манипуляции</strong></h5>
-                            <div class="mb-2">
-                                {{ calculation_form.manipulation_grading_factor.label_tag }}
-                                {{ calculation_form.manipulation_grading_factor }}
+                            <div class="card-body">
+                                {% for organ in organs %}
+                                <div class="border rounded p-3 mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="text-primary mb-0">
+                                            <strong>{{ organ.name }}</strong>
+                                        </h6>
+                                        {% if organ.toggleable %}
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox"
+                                                id="organ_enabled_{{ organ.original_name }}"
+                                                name="organ_enabled_{{ organ.original_name }}"
+												{% if organ.enabled%}checked{% endif %}
+                                                onchange="toggleOrgan('{{ organ.original_name }}', this.checked)">
+                                            <label class="form-check-label"
+                                                for="organ_enabled_{{ organ.original_name }}"
+                                                id="label_organ_enabled_{{ organ.original_name }}">
+                                                {% if organ.enabled %}Включен{% else %}Отключен{% endif %}
+                                            </label>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    {% if organ.calculation_factors %}
+                                    <div class="row">
+                                        {% for factor_key, factor_data in organ.calculation_factors.items %}
+                                        <div class="col-md-6 mb-3">
+                                            <label class="form-label" for="id_{{ factor_key }}">
+                                                {{ factor_data.label }}
+                                            </label>
+                                            <input type="number" class="form-control" id="id_{{ factor_key }}"
+                                                name="{{ factor_key }}"
+                                                value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
+                                                step="0.01" min="0" 
+                                                {% if organ.toggleable and not organ.enabled%}disabled{% endif %} required>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    <p class="text-muted mb-0">
+                                        {% if organ.toggleable and not organ.enabled %}
+                                        Орган отключен. Включите его для настройки коэффициентов.
+                                        {% else %}
+                                        Коэффициенты не требуются
+                                        {% endif %}
+                                    </p>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
                             </div>
                         </div>
+                        {% endif %}
+                        {% endfor %}
 
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <button type="submit" form="calculationForm" name="action" value="save_calculation_factors"
-                        class="btn btn-primary">Сохранить</button>
+                    <input type="hidden" name="action" id="calculation_action" value="save_calculation_factors">
+                    <button type="submit" form="calculationForm"
+                        onclick="document.getElementById('calculation_action').value='save_calculation_factors';"
+                        class="btn btn-primary">Сохранить все коэффициенты</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
                 </div>
             </div>
         </div>
     </div>
+
+
+    <!-- Модальное окно для управления методиками -->
+    <div class="modal fade" id="modalMethodologies" tabindex="-1" aria-labelledby="modalMethodologies"
+        aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-earmark-text me-2"></i>
+                        <strong>УПРАВЛЕНИЕ МЕТОДИКАМИ</strong>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- Форма добавления новой методики -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="mb-0">
+                                <i class="bi bi-plus-circle me-2"></i>
+                                <strong>Добавить новую методику</strong>
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <form method="post" id="addMethodologyForm"
+                                action="{% if protection_device %}{% url 'add_methodology_for_device' protection_device.id %}{% else %}{% url 'add_methodology' %}{% endif %}"
+                                enctype="multipart/form-data">
+                                {% csrf_token %}
+                                {% if protection_device %}
+                                <input type="hidden" name="device_id" value="{{ protection_device.id }}">
+                                {% endif %}
+
+                                <!-- Поле выбора производителя -->
+                                <div class="mb-3">
+                                    <label for="id_manufacturer" class="form-label">
+                                        <i class="bi bi-building"></i> Производитель
+                                    </label>
+                                    <select class="form-control" id="id_manufacturer" name="manufacturer" required>
+                                        <option value="">Выберите производителя</option>
+                                        <option value="ЭКРА">ЭКРА</option>
+                                        <option value="Релематика">Релематика</option>
+                                        <option value="Бреслер">Бреслер</option>
+                                        <option value="Другие">Другие</option>
+                                    </select>
+                                    <small class="form-text text-muted">
+                                        Выберите производителя устройства РЗА
+                                    </small>
+                                </div>
+
+                                <!-- Поле для загрузки файла -->
+                                <div class="mb-3">
+                                    <label for="id_file" class="form-label">
+                                        <i class="bi bi-upload"></i> Выберите файл методики
+                                    </label>
+                                    <input type="file" class="form-control" id="id_file" name="file"
+                                        accept=".pdf,.doc,.docx" required>
+                                    <small class="form-text text-muted">
+                                        Загрузите файл методики (PDF, DOC, DOCX и т.д.)
+                                    </small>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-plus-circle"></i> Добавить методику
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Список существующих методик -->
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            <h6 class="mb-0">
+                                <i class="bi bi-list-ul me-2"></i>
+                                <strong>Список методик</strong>
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            {% if methodologies_by_manufacturer %}
+                            <div class="accordion" id="methodologiesAccordion">
+                                {% for manufacturer, methodologies in methodologies_by_manufacturer.items %}
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="heading{{ forloop.counter }}">
+                                        <button class="accordion-button {% if not forloop.first %}collapsed{% endif %}"
+                                            type="button" data-bs-toggle="collapse"
+                                            data-bs-target="#collapse{{ forloop.counter }}"
+                                            aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}"
+                                            aria-controls="collapse{{ forloop.counter }}">
+                                            <i class="bi bi-building me-2"></i>
+                                            <strong>{{ manufacturer }}</strong>
+                                            <span class="badge bg-secondary ms-2">{{ methodologies|length }}</span>
+                                        </button>
+                                    </h2>
+                                    <div id="collapse{{ forloop.counter }}"
+                                        class="accordion-collapse collapse {% if forloop.first %}show{% endif %}"
+                                        aria-labelledby="heading{{ forloop.counter }}"
+                                        data-bs-parent="#methodologiesAccordion">
+                                        <div class="accordion-body">
+                                            <div class="table-responsive">
+                                                <table class="table table-hover table-sm">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Название файла</th>
+                                                            <th>Дата загрузки</th>
+                                                            <th>Действия</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for meth in methodologies %}
+                                                        {% if methodology and meth.id == methodology.id %}
+                                                        <tr class="table-info">
+                                                            {% else %}
+                                                        <tr>
+                                                            {% endif %}
+                                                            <td>
+                                                                <a href="{% url 'methodology_document' meth.id %}"
+                                                                    target="_blank" class="text-decoration-none">
+                                                                    <i class="bi bi-file-earmark-pdf-fill me-2"></i>
+                                                                    {{ meth.get_filename }}
+                                                                </a>
+                                                                {% if methodology and meth.id == methodology.id %}
+                                                                <span class="badge bg-success ms-2">
+                                                                    <i class="bi bi-check-circle me-1"></i>Текущая
+                                                                </span>
+                                                                {% endif %}
+                                                            </td>
+                                                            <td>
+                                                                <i class="bi bi-calendar3 me-1"></i>
+                                                                {{ meth.created_at|date:"d.m.Y H:i" }}
+                                                            </td>
+                                                            <td>
+                                                                <button type="button"
+                                                                    class="btn btn-sm btn-danger delete-methodology-btn"
+                                                                    data-methodology-id="{{ meth.id }}"
+                                                                    data-methodology-name="{{ meth.name_file }}">
+                                                                    <i class="bi bi-trash me-1"></i> Удалить
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% else %}
+                            <div class="text-center py-5">
+                                <i class="bi bi-inbox" style="font-size: 3rem; color: #dee2e6;"></i>
+                                <p class="text-muted mt-3 mb-0">Методики не найдены</p>
+                                <small class="text-muted">Добавьте первую методику, используя форму выше</small>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Функция для обновления списка методик в модальном окне
+        function refreshMethodologiesList() {
+            const modalBody = document.querySelector('#modalMethodologies .modal-body');
+            if (!modalBody) return;
+
+            // Сохраняем позицию скролла
+            const scrollPosition = modalBody.scrollTop;
+
+            // Делаем запрос к странице расчета для получения обновленного HTML
+            fetch(window.location.href, {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(response => response.text())
+                .then(html => {
+                    // Создаем временный элемент для парсинга HTML
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+
+                    // Находим обновленное содержимое модального окна
+                    const newModalBody = tempDiv.querySelector('#modalMethodologies .modal-body');
+                    if (newModalBody) {
+                        // Заменяем содержимое
+                        modalBody.innerHTML = newModalBody.innerHTML;
+
+                        // Восстанавливаем позицию скролла
+                        modalBody.scrollTop = scrollPosition;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error refreshing methodologies list:', error);
+                });
+        }
+
+        // Используем делегирование событий для кнопок удаления (работает с динамически добавляемыми элементами)
+        document.addEventListener('click', function (e) {
+            if (e.target.closest('.delete-methodology-btn')) {
+                e.preventDefault();
+                const btn = e.target.closest('.delete-methodology-btn');
+                const methodologyId = btn.getAttribute('data-methodology-id');
+                const methodologyName = btn.getAttribute('data-methodology-name');
+
+                if (confirm(`Вы уверены, что хотите удалить методику "${methodologyName}"?`)) {
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                        document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+                    fetch(`{% url 'delete_methodology' 0 %}`.replace('0', methodologyId), {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': csrfToken,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // Обновляем список методик без перезагрузки страницы
+                                refreshMethodologiesList();
+                            } else {
+                                alert('Ошибка: ' + (data.message || 'Не удалось удалить методику'));
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            alert('Произошла ошибка при удалении методики');
+                        });
+                }
+            }
+        });
+
+        // Обработка добавления методики через AJAX
+        document.getElementById('addMethodologyForm')?.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const form = this;
+
+            // Проверяем, что выбран файл
+            const fileInput = form.querySelector('#id_file');
+
+            if (!fileInput.files.length) {
+                alert('Пожалуйста, выберите файл для загрузки.');
+                return;
+            }
+
+            const formData = new FormData(form);
+
+            fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                    // НЕ устанавливаем Content-Type - браузер установит его автоматически с правильной границей для multipart/form-data
+                }
+            })
+                .then(response => {
+                    // Пытаемся получить JSON, даже если статус не 200
+                    return response.json().then(data => {
+                        return { ok: response.ok, status: response.status, data: data };
+                    }).catch(() => {
+                        // Если не удалось распарсить JSON, возвращаем текст
+                        return response.text().then(text => {
+                            return { ok: response.ok, status: response.status, data: { message: text } };
+                        });
+                    });
+                })
+                .then(result => {
+                    const data = result.data;
+                    if (result.ok && data.success) {
+                        // Очищаем форму
+                        form.reset();
+
+                        // Обновляем список методик без перезагрузки страницы
+                        refreshMethodologiesList();
+                    } else {
+                        // Показываем детальные ошибки валидации
+                        let errorMessage = data.message || 'Не удалось добавить методику';
+                        if (data.errors) {
+                            const errorDetails = Object.entries(data.errors)
+                                .map(([field, errors]) => {
+                                    const errorList = Array.isArray(errors) ? errors : [errors];
+                                    return `${field}: ${errorList.join(', ')}`;
+                                })
+                                .join('\n');
+                            errorMessage += '\n\nДетали:\n' + errorDetails;
+                        }
+                        alert('Ошибка: ' + errorMessage);
+                        console.error('Form submission error:', data);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Произошла ошибка при добавлении методики: ' + error.message);
+                });
+        });
+    </script>
+
+    <script>
+        function toggleOrgan(organName, enabled) {
+            const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+            const formData = new FormData();
+            formData.append('organ_name', organName);
+            formData.append('enabled', enabled ? 'on' : 'off');
+            formData.append('action', 'toggle_organ');
+            formData.append('csrfmiddlewaretoken', csrfToken);
+
+            fetch('{% url "calculation" %}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Обновляем видимость полей коэффициентов без перезагрузки
+                        const checkbox = document.querySelector(`input[id="organ_enabled_${organName}"]`);
+                        if (checkbox) {
+                            // Обновляем текст метки
+                            const label = document.querySelector(`label[id="label_organ_enabled_${organName}"]`);
+                            if (label) {
+                                label.textContent = enabled ? 'Включен' : 'Отключен';
+                            }
+
+                            const organContainer = checkbox.closest('.border.rounded');
+                            const factorsContainer = organContainer ? organContainer.querySelector('.row') : null;
+                            const factorsInputs = factorsContainer ? factorsContainer.querySelectorAll('input[type="number"]') : [];
+
+                            if (enabled) {
+                                // Включаем поля
+                                factorsInputs.forEach(input => {
+                                    input.disabled = false;
+                                    input.required = true;
+                                });
+                                if (factorsContainer) {
+                                    factorsContainer.style.opacity = '1';
+                                }
+                            } else {
+                                // Отключаем поля
+                                factorsInputs.forEach(input => {
+                                    input.disabled = true;
+                                    input.required = false;
+                                });
+                                if (factorsContainer) {
+                                    factorsContainer.style.opacity = '0.5';
+                                }
+                            }
+                        }
+                    } else {
+                        alert('Ошибка: ' + (data.message || 'Не удалось изменить состояние органа'));
+                        // Возвращаем чекбокс в исходное состояние
+                        const checkbox = document.querySelector(`input[id="organ_enabled_${organName}"]`);
+                        if (checkbox) {
+                            checkbox.checked = !enabled;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Произошла ошибка при изменении состояния органа');
+                    // Возвращаем чекбокс в исходное состояние
+                    const checkbox = document.querySelector(`input[id="organ_enabled_${organName}"]`);
+                    if (checkbox) {
+                        checkbox.checked = !enabled;
+                    }
+                });
+        }
+    </script>
 
 </div>
 {% endblock content %}

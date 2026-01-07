@@ -1,4 +1,5 @@
 from collections import defaultdict
+import copy
 
 import openpyxl
 from openpyxl.styles import Font
@@ -23,6 +24,7 @@ from .services import (
     SettingsCalculationService,
     SensitivityAnalysisService,
 )
+from .services.settings_calculation_map import SETTINGS_CALCULATION_MAP
 from .services.project_sync_service import ProjectSyncService
 from .services.fault_calculation_service import FaultCalculationService
 from .services.submodes_generator import generate_half_set_submodes
@@ -58,7 +60,14 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
         # Получаем проект из сессии для фильтрации данных
         project_name = request.session.get('pf_project_name')
+        line_id = request.session.get("line_id", None)
+        
+        # Создаем форму и устанавливаем начальные значения
         line_form = LineSelectionForm(project_name=project_name)
+        
+        # Явно устанавливаем ТН в None по умолчанию
+        line_form.fields['vt'].initial = None
+        
         calculation_form = CalculationFactorsForm()
         submodes_form1 = SubmodesConfigurationForm(prefix="half_set1")
         submodes_form2 = SubmodesConfigurationForm(prefix="half_set2")
@@ -72,10 +81,29 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         half_set2_topology_display = None
         half_set1_submodes = None
         half_set2_submodes = None
-        line_id = request.session.get("line_id", None)
-
-        # Получаем проект из сессии для фильтрации данных
-        project_name = request.session.get('pf_project_name')
+        
+        # Если выбрана ЛЭП, устанавливаем начальные значения для формы
+        if line_id:
+            try:
+                line_query = Line.objects.filter(pk=line_id)
+                if project_name:
+                    line_query = line_query.filter(project_name=project_name)
+                line = line_query.first()
+                
+                # Если у линии есть ТН, устанавливаем его в форме
+                if line and line.vt:
+                    line_form.fields['vt'].initial = line.vt
+                # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
+                elif line and line.voltage_level:
+                    from core.models import VoltageTransformer
+                    line_voltage_int = int(float(line.voltage_level))
+                    # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                    # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+                    vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+                    if vt:
+                        line_form.fields['vt'].initial = vt
+            except Line.DoesNotExist:
+                pass
 
         if line_id:
             try:
@@ -123,15 +151,15 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 line = None
         
         # Получаем данные для отображения из сессии
-        half_set1_topology_display = request.session.get(
-            "half_set1_topology_display"
-        )
-        half_set2_topology_display = request.session.get(
-            "half_set2_topology_display"
-        )
+            half_set1_topology_display = request.session.get(
+                    "half_set1_topology_display"
+            )
+            half_set2_topology_display = request.session.get(
+                    "half_set2_topology_display"
+            )
         # Получаем подрежимы из сессии
-        half_set1_submodes = request.session.get("half_set1_submodes")
-        half_set2_submodes = request.session.get("half_set2_submodes")
+            half_set1_submodes = request.session.get("half_set1_submodes")
+            half_set2_submodes = request.session.get("half_set2_submodes")
         
         print(f"[DEBUG] Подрежимы из сессии - half_set1: {half_set1_submodes is not None}, half_set2: {half_set2_submodes is not None}")
         
@@ -291,6 +319,153 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         elif protection_device and not methodology:
             methodology = protection_device.methodology
 
+        # Проверяем наличие ответвлений у линии
+        has_branches = False
+        if line:
+            # Проверяем наличие активных ответвлений
+            has_branches = line.branches.filter(is_active=True).exists()
+            # Если ответвлений нет в БД, но есть branch_substations, значит они есть
+            if not has_branches and branch_substations:
+                has_branches = True
+        
+        # Подготавливаем данные для отображения всех органов и их коэффициентов
+        # Группируем органы по типам ЛЭП
+        organs_by_line_type = {
+            'Основные органы': [
+                # Токовые органы
+                'IЛ БЛОК', 'IЛ ОТКЛ',
+                'I2 БЛОК', 'I2 ОТКЛ',
+                '3I0 БЛОК', '3I0 ОТКЛ',  # Не важны, но важны на ЛЭП с ответвлениями
+                # Органы по приращению тока
+                'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ',
+                # Дистанционный орган
+                'R ОТКЛ', 'X ОТКЛ',
+                # Управляющие органы
+                'K МАН',  # Коэффициент комбинированного фильтра
+                'УГОЛ БЛОК',  # Угол блокировки ОСФ
+            ],
+            'Специальные органы': [
+                # Дистанционный орган защиты ответвлений
+                'R ОТВ', 'X ОТВ',
+                # Направленный орган мощности нулевой последовательности
+                'РТНП/3I0_M0', 'РННП/3U0_M0',
+            ]
+        }
+        
+        # Органы, которые можно включать/отключать
+        # Для 3I0 - важны на ЛЭП с ответвлениями
+        # Для DI1, DI2 - можно включать/отключать на любой ЛЭП
+        toggleable_organs = {
+            '3I0 БЛОК': {'important_with_branches': True, 'default_enabled': False},
+            '3I0 ОТКЛ': {'important_with_branches': True, 'default_enabled': False},
+            'DI1 БЛОК': {'important_with_branches': False, 'default_enabled': False},
+            'DI1 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
+            'DI2 БЛОК': {'important_with_branches': False, 'default_enabled': False},
+            'DI2 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
+        }
+        
+        # Словарь для отображения названий органов (если нужно изменить отображаемое название)
+        organ_display_names = {
+            'K МАН': 'Орган манипуляции',
+            'УГОЛ БЛОК': 'Орган сравнения фаз'
+        }
+        
+        # Получаем состояние включения/отключения органов из сессии
+        enabled_organs = request.session.get("enabled_organs", {})
+        
+        # Формируем структуру данных для отображения
+        organs_data = {}
+        calculation_factors = request.session.get("calculation_factors", {})
+        for category, organ_names in organs_by_line_type.items():
+            # Пропускаем категорию специальных органов, если нет ответвлений
+            if category == 'Специальные органы (используются ТОЛЬКО на ЛЭП С ответвлениями)' and not has_branches:
+                continue
+                
+            organs_data[category] = []
+            for organ_name in organ_names:
+                # Пропускаем специальные органы, если нет ответвлений
+                if organ_name in ['R ОТВ', 'X ОТВ', 'РТНП/3I0_M0', 'РННП/3U0_M0'] and not has_branches:
+                    continue
+                
+                # Определяем состояние включения/отключения для переключаемых органов
+                is_enabled = True
+                if organ_name in toggleable_organs:
+                    organ_config = toggleable_organs[organ_name]
+                    # Если орган важен на ЛЭП с ответвлениями и они есть, включаем по умолчанию
+                    if organ_config['important_with_branches'] and has_branches:
+                        is_enabled = enabled_organs.get(organ_name, True)
+                    else:
+                        is_enabled = enabled_organs.get(organ_name, organ_config['default_enabled'])
+                    
+                if organ_name in SETTINGS_CALCULATION_MAP:
+                    organ_info = copy.deepcopy(SETTINGS_CALCULATION_MAP[organ_name])
+                    # Используем отображаемое название, если оно есть, иначе оригинальное
+                    organ_info['name'] = organ_display_names.get(organ_name, organ_name)
+                    # Сохраняем оригинальное название для идентификации
+                    organ_info['original_name'] = organ_name
+                    # Добавляем информацию о том, можно ли переключать орган
+                    if organ_name in toggleable_organs:
+                        organ_info['toggleable'] = True
+                        organ_info['enabled'] = is_enabled
+                    # Получаем текущие значения коэффициентов из сессии, если они есть
+                    if organ_info.get('calculation_factors'):
+                        for factor_key, factor_data in organ_info['calculation_factors'].items():
+                            # Всегда устанавливаем current_value: либо из сессии, либо из default_value
+                            if factor_key in calculation_factors:
+                                # Используем значение из сессии
+                                factor_data['current_value'] = calculation_factors[factor_key]
+                            else:
+                                # Используем default_value как значение для отображения
+                                # Убеждаемся, что default_value существует и не None
+                                default_val = factor_data.get('default_value')
+                                # Всегда устанавливаем current_value равным default_value
+                                # Если default_value отсутствует, оставляем None (шаблон обработает)
+                                factor_data['current_value'] = default_val
+                    organs_data[category].append(organ_info)
+
+        # Получаем все методики для отображения в модальном окне
+        from core.models import MethodologyDocument
+        all_methodologies = MethodologyDocument.objects.all().order_by('-created_at') if MethodologyDocument else []
+        
+        # Группируем методики по производителям
+        methodologies_by_manufacturer = {
+            'ЭКРА': [],
+            'Релематика': [],
+            'Бреслер': [],
+            'Другие': []
+        }
+        
+        for meth in all_methodologies:
+            name_file_lower = meth.name_file.lower()
+            # Проверяем путь файла - если он содержит папку производителя, используем её
+            # Формат: methodologies/ЭКРА/файл.pdf или methodologies/Релематика/файл.pdf
+            path_parts = name_file_lower.replace('\\', '/').split('/')
+            
+            # Ищем папку производителя в пути (обычно это второй элемент после 'methodologies')
+            if len(path_parts) >= 2 and path_parts[0] == 'methodologies':
+                manufacturer_in_path = path_parts[1]
+                if 'экра' in manufacturer_in_path:
+                    methodologies_by_manufacturer['ЭКРА'].append(meth)
+                elif 'релематика' in manufacturer_in_path:
+                    methodologies_by_manufacturer['Релематика'].append(meth)
+                elif 'бреслер' in manufacturer_in_path or 'нпп' in manufacturer_in_path:
+                    methodologies_by_manufacturer['Бреслер'].append(meth)
+                else:
+                    methodologies_by_manufacturer['Другие'].append(meth)
+            else:
+                # Для обратной совместимости: проверяем имя файла, если путь не содержит папку
+                if 'экра' in name_file_lower:
+                    methodologies_by_manufacturer['ЭКРА'].append(meth)
+                elif 'релематика' in name_file_lower:
+                    methodologies_by_manufacturer['Релематика'].append(meth)
+                elif 'бреслер' in name_file_lower or 'нпп' in name_file_lower:
+                    methodologies_by_manufacturer['Бреслер'].append(meth)
+                else:
+                    methodologies_by_manufacturer['Другие'].append(meth)
+        
+        # Удаляем пустые категории
+        methodologies_by_manufacturer = {k: v for k, v in methodologies_by_manufacturer.items() if v}
+
         return render(
             request,
             self.template_name,
@@ -310,6 +485,12 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 "half_set1_submodes": half_set1_submodes,
                 "half_set2_submodes": half_set2_submodes,
                 "branch_substations": branch_substations,
+                "organs_data": organs_data,
+                "settings_calculation_map": SETTINGS_CALCULATION_MAP,
+                "all_methodologies": all_methodologies,
+                "methodologies_by_manufacturer": methodologies_by_manufacturer,
+                "has_branches": has_branches,
+                "toggleable_organs": toggleable_organs,
             },
         )
 
@@ -323,6 +504,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             return self.generate_submodes(request)
         elif action == "save_calculation_factors":
             return self.save_calculation_factors(request)
+        elif action == "toggle_organ":
+            return self.toggle_organ(request)
         elif action == "calculate_settings":
             return self.calculate_settings(request)
 
@@ -422,6 +605,18 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             # Сохраняем выбранные ТТ и ТН в модель Line
             ct = form.cleaned_data.get("ct")
             vt = form.cleaned_data.get("vt")
+            
+            # Если ТН не выбран пользователем, но у линии есть напряжение, 
+            # пытаемся найти подходящий ТН автоматически
+            # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+            if not vt and line.voltage_level:
+                from core.models import VoltageTransformer
+                # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                line_voltage_int = int(float(line.voltage_level))
+                vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+                if vt:
+                    line.vt = vt
+            
             if ct:
                 line.ct = ct
             if vt:
@@ -462,6 +657,17 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
                 # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
                 line.update_voltage_from_pf(app)
+                
+                # Если ТН еще не установлен, пытаемся найти подходящий по напряжению
+                # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+                if not line.vt and line.voltage_level:
+                    from core.models import VoltageTransformer
+                    # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                    line_voltage_int = int(float(line.voltage_level))
+                    vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+                    if vt:
+                        line.vt = vt
+                        line.save()
 
                 # Выполняем анализ топологии прилегающей
                 # сети для каждого полукомплекта
@@ -601,12 +807,68 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         return redirect("calculation")
 
     def save_calculation_factors(self, request):
+        # Собираем все коэффициенты из POST запроса
+        calculation_factors = {}
+        
+        # Сначала получаем данные из стандартной формы
         form = CalculationFactorsForm(request.POST)
         if form.is_valid():
-            calculation_factors = form.cleaned_data
-            print(calculation_factors)
-            request.session["calculation_factors"] = calculation_factors
-            messages.success(request, "Коэффициенты успешно сохранены.")
+            calculation_factors.update(form.cleaned_data)
+        
+        # Сохраняем состояние включения/отключения органов
+        enabled_organs = {}
+        toggleable_organs_list = ['3I0 БЛОК', '3I0 ОТКЛ', 'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ']
+        for organ_name in toggleable_organs_list:
+            # Проверяем, есть ли чекбокс для этого органа в POST
+            enabled_organs[organ_name] = request.POST.get(f'organ_enabled_{organ_name}', 'off') == 'on'
+        
+        request.session["enabled_organs"] = enabled_organs
+        
+        # Затем собираем все остальные коэффициенты из SETTINGS_CALCULATION_MAP
+        for organ_name, organ_data in SETTINGS_CALCULATION_MAP.items():
+            if organ_data.get('calculation_factors'):
+                for factor_key in organ_data['calculation_factors'].keys():
+                    # Получаем значение из POST, если оно есть
+                    if factor_key in request.POST:
+                        try:
+                            value = float(request.POST[factor_key])
+                            calculation_factors[factor_key] = value
+                        except (ValueError, TypeError):
+                            # Если не удалось преобразовать, используем значение по умолчанию
+                            default_value = organ_data['calculation_factors'][factor_key].get('default_value')
+                            if default_value is not None:
+                                calculation_factors[factor_key] = default_value
+        
+        print(f"[DEBUG] Сохраненные коэффициенты: {calculation_factors}")
+        request.session["calculation_factors"] = calculation_factors
+        request.session.modified = True
+        messages.success(request, f"Коэффициенты успешно сохранены. Всего сохранено: {len(calculation_factors)} коэффициентов.")
+        return redirect("calculation")
+
+    def toggle_organ(self, request):
+        """Переключает состояние органа (включен/выключен) через AJAX."""
+        organ_name = request.POST.get('organ_name')
+        enabled = request.POST.get('enabled') == 'on'
+        
+        if not organ_name:
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return JsonResponse({'success': False, 'message': 'Не указано название органа'}, status=400)
+            return redirect("calculation")
+        
+        # Получаем текущее состояние органов из сессии
+        enabled_organs = request.session.get("enabled_organs", {})
+        enabled_organs[organ_name] = enabled
+        request.session["enabled_organs"] = enabled_organs
+        request.session.modified = True
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({
+                'success': True,
+                'message': f'Орган {organ_name} {"включен" if enabled else "отключен"}',
+                'organ_name': organ_name,
+                'enabled': enabled
+            })
+        
         return redirect("calculation")
 
     def calculate_settings(self, request):
@@ -662,8 +924,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 app, half_set1, half_set1_submodes, calculation_meta
             )
             fault_service.perform_branch_fault_calculation(
-                app, half_set2, half_set2_submodes, calculation_meta
-            )
+            app, half_set2, half_set2_submodes, calculation_meta
+        )
 
         # Освобождаем COM-объект
         del app
@@ -724,6 +986,51 @@ def filter_lines_ajax(request):
     lines = [{'id': line.id, 'name': line.dispatch_name} for line in queryset]
     
     return JsonResponse({'lines': lines})
+
+
+@require_http_methods(["GET"])
+@login_required
+def get_line_vt_ajax(request):
+    """AJAX endpoint для получения подходящего ТН для выбранной ЛЭП."""
+    from core.models import VoltageTransformer
+    
+    line_id = request.GET.get('line_id')
+    if not line_id:
+        return JsonResponse({'success': False, 'message': 'Не указан ID ЛЭП'}, status=400)
+    
+    try:
+        line = Line.objects.get(pk=line_id)
+        
+        # Если у линии уже есть ТН, возвращаем его
+        if line.vt:
+            return JsonResponse({
+                'success': True,
+                'vt_id': line.vt.id,
+                'vt_name': str(line.vt),
+                'voltage_level': float(line.voltage_level) if line.voltage_level else None
+            })
+        
+        # Если у линии есть напряжение, ищем подходящий ТН
+        if line.voltage_level:
+            line_voltage_int = int(float(line.voltage_level))
+            vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+            if vt:
+                return JsonResponse({
+                    'success': True,
+                    'vt_id': vt.id,
+                    'vt_name': str(vt),
+                    'voltage_level': float(line.voltage_level)
+                })
+        
+        return JsonResponse({
+            'success': False,
+            'message': 'Не найдено подходящего ТН для данной ЛЭП',
+            'voltage_level': float(line.voltage_level) if line.voltage_level else None
+        })
+    except Line.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'ЛЭП не найдена'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': str(e)}, status=500)
 
 
 class TestView(View):

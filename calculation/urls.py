@@ -53,4 +53,9 @@ urlpatterns = [
         views.get_available_projects_ajax,
         name='get_available_projects_ajax'
     ),
+    path(
+        'get-line-vt/',
+        views.get_line_vt_ajax,
+        name='get_line_vt_ajax'
+    ),
 ]
