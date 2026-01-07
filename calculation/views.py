@@ -52,7 +52,7 @@ FAULT_TYPE_COLORS = {
 
 class CalculationView(LoginRequiredMixin, TemplateView):
 
-    template_name = "calculation/calculation_new.html"
+    template_name = "calculation/calculation.html"
     pf_manager = PowerFactoryManager()
 
     def get(self, request):
