@@ -584,8 +584,8 @@
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox"
                                                 id="organ_enabled_{{ organ.original_name }}"
-                                                name="organ_enabled_{{ organ.original_name }}" 
-                                                {% if organ.enabled%}checked{% endif %}
+                                                name="organ_enabled_{{ organ.original_name }}" {% if
+                                                organ.enabled%}checked{% endif %}
                                                 onchange="toggleOrgan('{{ organ.original_name }}', this.checked)">
                                             <label class="form-check-label"
                                                 for="organ_enabled_{{ organ.original_name }}"
@@ -605,8 +605,8 @@
                                             <input type="number" class="form-control" id="id_{{ factor_key }}"
                                                 name="{{ factor_key }}"
                                                 value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
-                                                step="0.01" min="0" 
-                                                {% if organ.toggleable and not organ.enabled%}disabled{% endif %} required>
+                                                step="0.01" min="0" {% if organ.toggleable and not
+                                                organ.enabled%}disabled{% endif %} required>
                                         </div>
                                         {% endfor %}
                                     </div>

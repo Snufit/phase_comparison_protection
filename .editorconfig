@@ -1,0 +1,28 @@
+# EditorConfig is awesome: https://EditorConfig.org
+
+# top-most EditorConfig file
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{html,htm}]
+# Для HTML файлов не разрываем строки внутри атрибутов
+# Это особенно важно для Django шаблонов
+indent_style = space
+indent_size = 4
+max_line_length = off
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+[*.{js,css}]
+indent_style = space
+indent_size = 2
+
+
