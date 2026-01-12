@@ -31,8 +31,6 @@
                         {% for factor_type, factor_value in result.calculation_factors.items %}
                             {{ factor_type }}: {{ factor_value }} <br/>
                         {% endfor %}
-                    {% else %}
-                        <em>Нет коэффициентов</em>
                     {% endif %}
                 </td>
                 <td>{{ result.result_value }}</td>

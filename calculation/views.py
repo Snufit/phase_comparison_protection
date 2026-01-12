@@ -151,15 +151,15 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 line = None
         
         # Получаем данные для отображения из сессии
-            half_set1_topology_display = request.session.get(
-                    "half_set1_topology_display"
-            )
-            half_set2_topology_display = request.session.get(
-                    "half_set2_topology_display"
-            )
+        half_set1_topology_display = request.session.get(
+            "half_set1_topology_display"
+        )
+        half_set2_topology_display = request.session.get(
+            "half_set2_topology_display"
+        )
         # Получаем подрежимы из сессии
-            half_set1_submodes = request.session.get("half_set1_submodes")
-            half_set2_submodes = request.session.get("half_set2_submodes")
+        half_set1_submodes = request.session.get("half_set1_submodes")
+        half_set2_submodes = request.session.get("half_set2_submodes")
         
         print(f"[DEBUG] Подрежимы из сессии - half_set1: {half_set1_submodes is not None}, half_set2: {half_set2_submodes is not None}")
         
@@ -338,6 +338,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 '3I0 БЛОК', '3I0 ОТКЛ',  # Не важны, но важны на ЛЭП с ответвлениями
                 # Органы по приращению тока
                 'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ',
+                # Напряженческие органы (необязательные)
+                'U2 БЛОК', 'U2 ОТКЛ',
                 # Дистанционный орган
                 'R ОТКЛ', 'X ОТКЛ',
                 # Управляющие органы
@@ -354,7 +356,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         
         # Органы, которые можно включать/отключать
         # Для 3I0 - важны на ЛЭП с ответвлениями
-        # Для DI1, DI2 - можно включать/отключать на любой ЛЭП
+        # Для DI1, DI2, U2 - можно включать/отключать на любой ЛЭП (необязательные органы)
         toggleable_organs = {
             '3I0 БЛОК': {'important_with_branches': True, 'default_enabled': False},
             '3I0 ОТКЛ': {'important_with_branches': True, 'default_enabled': False},
@@ -362,6 +364,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             'DI1 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
             'DI2 БЛОК': {'important_with_branches': False, 'default_enabled': False},
             'DI2 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
+            'U2 БЛОК': {'important_with_branches': False, 'default_enabled': False},
+            'U2 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
         }
         
         # Словарь для отображения названий органов (если нужно изменить отображаемое название)
@@ -817,7 +821,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         
         # Сохраняем состояние включения/отключения органов
         enabled_organs = {}
-        toggleable_organs_list = ['3I0 БЛОК', '3I0 ОТКЛ', 'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ']
+        toggleable_organs_list = ['3I0 БЛОК', '3I0 ОТКЛ', 'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ', 'U2 БЛОК', 'U2 ОТКЛ']
         for organ_name in toggleable_organs_list:
             # Проверяем, есть ли чекбокс для этого органа в POST
             enabled_organs[organ_name] = request.POST.get(f'organ_enabled_{organ_name}', 'off') == 'on'
@@ -930,9 +934,12 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         # Освобождаем COM-объект
         del app
 
+        # Получаем состояние включения/отключения органов из сессии
+        enabled_organs = request.session.get("enabled_organs", {})
+        
         # Выполняем расчет параметров настройки ДФЗ
         calculation_service = SettingsCalculationService(
-            calculation_meta, calculation_factors
+            calculation_meta, calculation_factors, enabled_organs
         )
         calculation_service.run()
 
@@ -1090,10 +1097,15 @@ def sensitivity_analysis(request, calculation_meta_id):
     calculation_meta = CalculationMeta.objects.get(id=calculation_meta_id)
     sens_analysis = SensitivityAnalysis.objects.filter(
         settings_calculation__calculation_meta=calculation_meta
+    ).order_by(
+        'settings_calculation__protection_half_set',
+        'settings_calculation__component__setting_designation',
+        'fault_calculation__fault_type',
+        'fault_calculation__fault_location'
     )
     
     # Добавляем пагинацию
-    paginator = Paginator(sens_analysis, 15)  # 10 записей на страницу
+    paginator = Paginator(sens_analysis, 15)  # 15 записей на страницу
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
     
