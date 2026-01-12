@@ -1,7 +1,8 @@
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Set
 
 from calculation.models import FaultCalculation, CalculationMeta
 from calculation.services.powerfactory_locator import get_pf_line, get_pf_substation, get_powerfactory_object_by_full_name
+from calculation.services.sensitivity_fault_map import SensitivityFaultMap, POWERFACTORY_FAULT_TYPES, FAULT_LOCATION_OPPOSITE_END, FAULT_LOCATION_BRANCHES
 from core.models import ProtectionHalfSet
 
 
@@ -16,11 +17,11 @@ class FaultCalculationService:
         'iopt_allbus': 0,
     }
 
-    # Виды КЗ
+    # Виды КЗ в PowerFactory (полный список)
     FAULTS = {
         '3psc': 'К(3)',
-        # '2psc': 'К(2)',
-        # '2pgf': 'К(1,1)',
+        '2psc': 'К(2)',
+        '2pgf': 'К(1,1)',
         'spgf': 'К(1)'
     }
 
@@ -31,7 +32,16 @@ class FaultCalculationService:
         submodes: List[Dict[str, Union[List[str], str]]],
         calculation_meta: CalculationMeta
     ) -> None:
-
+        """
+        Выполняет расчет КЗ на противоположном конце ЛЭП.
+        Использует карту КЗ для определения необходимых типов КЗ.
+        
+        Args:
+            app: Объект приложения PowerFactory
+            protection_half_set: Полукомплект защиты
+            submodes: Список подрежимов
+            calculation_meta: Мета-данные расчета
+        """
         # Определяем ЛЭП и ПС полукомплекта
         line_pf_name = protection_half_set.line.pf_name
         substation_pf_name = protection_half_set.substation.pf_name
@@ -40,9 +50,15 @@ class FaultCalculationService:
         pf_line = get_pf_line(app, line_pf_name)
         pf_substation = get_pf_substation(app, substation_pf_name)
 
-        # Определяем узел КЗ
+        # Определяем узел КЗ (противоположный конец)
         fault_terminal = self._get_fault_terminal(pf_line, pf_substation)
         fault_terminal_name = fault_terminal.GetAttribute('loc_name')
+
+        # Получаем необходимые типы КЗ для противоположного конца из карты КЗ
+        required_fault_types = self._get_required_fault_types_for_location(FAULT_LOCATION_OPPOSITE_END)
+        
+        print(f"[DEBUG] Моделирование КЗ на противоположном конце для полукомплекта {protection_half_set.id}")
+        print(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
 
         # Перебираем подрежимы
         for submode in submodes:
@@ -70,8 +86,12 @@ class FaultCalculationService:
             # Отключаем объекты подрежима
             self._disconnect_submode_elements(submode_elements, True)
 
-            # Выполняем расчет КЗ
-            for pf_fault_type, fault_type in self.FAULTS.items():
+            # Выполняем расчет КЗ только для необходимых типов
+            for pf_fault_type in required_fault_types:
+                fault_type = self.FAULTS.get(pf_fault_type)
+                if not fault_type:
+                    continue
+                    
                 fault_values = self._execute_fault(
                     app, pf_line, fault_terminal, pf_fault_type
                 )
@@ -100,10 +120,8 @@ class FaultCalculationService:
         calculation_meta: CalculationMeta
     ) -> None:
         """
-        Выполняет расчет КЗ на подстанциях ответвлений для расчета X откл отв.
-        
-        Если подстанций ответвлений несколько, моделирует КЗ на всех и выбирает
-        максимальные значения U1/I1 для расчета X откл отв.
+        Выполняет расчет КЗ на подстанциях ответвлений.
+        Использует карту КЗ для определения необходимых типов КЗ.
         
         Args:
             app: Объект приложения PowerFactory
@@ -124,6 +142,12 @@ class FaultCalculationService:
         if not branches.exists():
             # Если ответвлений нет, ничего не делаем
             return
+        
+        # Получаем необходимые типы КЗ для ответвлений из карты КЗ
+        required_fault_types = self._get_required_fault_types_for_location(FAULT_LOCATION_BRANCHES)
+        
+        print(f"[DEBUG] Моделирование КЗ на ответвлениях для полукомплекта {protection_half_set.id}")
+        print(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
         
         # Перебираем подрежимы
         for submode in submodes:
@@ -170,23 +194,28 @@ class FaultCalculationService:
                     
                     branch_terminal_name = branch_terminal.GetAttribute('loc_name')
                     
-                    # Выполняем расчет КЗ только для трехфазного КЗ (для расчета X откл отв)
-                    fault_values = self._execute_fault(
-                        app, pf_line, branch_terminal, '3psc'
-                    )
-                    
-                    # Записываем результаты в БД с пометкой, что это КЗ на ответвлении
                     # Используем специальный формат fault_location для идентификации
                     fault_location = f"Ответвление: {branch_substation_name}"
                     
-                    self._save_results_to_db(
-                        calculation_meta,
-                        protection_half_set,
-                        'К(3)',  # Только трехфазное КЗ для расчета X откл отв
-                        fault_location,
-                        submode_name,
-                        fault_values
-                    )
+                    # Выполняем расчет КЗ для всех необходимых типов
+                    for pf_fault_type in required_fault_types:
+                        fault_type = self.FAULTS.get(pf_fault_type)
+                        if not fault_type:
+                            continue
+                        
+                        fault_values = self._execute_fault(
+                            app, pf_line, branch_terminal, pf_fault_type
+                        )
+                        
+                        # Записываем результаты в БД
+                        self._save_results_to_db(
+                            calculation_meta,
+                            protection_half_set,
+                            fault_type,
+                            fault_location,
+                            submode_name,
+                            fault_values
+                        )
                     
                 except Exception as e:
                     # Если не удалось выполнить расчет для этого ответвления, пропускаем
@@ -297,6 +326,7 @@ class FaultCalculationService:
         triple_zero_sequence_current = 0
         neg_sequence_voltage = 0
         pos_sequence_voltage = 0  # Остаточное напряжение прямой последовательности
+        zero_sequence_voltage = 0  # Напряжение нулевой последовательности
 
         if pf_line.HasAttribute('m:I1:0'):
             pos_sequence_current = pf_line.GetAttribute('m:I1:0')
@@ -308,19 +338,59 @@ class FaultCalculationService:
             neg_sequence_voltage = pf_line.GetAttribute('n:U2:0')
         if pf_line.HasAttribute('n:U1:0'):
             pos_sequence_voltage = pf_line.GetAttribute('n:U1:0')
+        # Получаем напряжение нулевой последовательности (для расчета 3U0)
+        if pf_line.HasAttribute('n:U0:0'):
+            zero_sequence_voltage = pf_line.GetAttribute('n:U0:0')
 
         results = {
             'I1': round(pos_sequence_current * 1000, 0),
             'I2': round(neg_sequence_current * 1000, 0),
             '3I0': round(triple_zero_sequence_current * 1000, 0),
             'U2': round(neg_sequence_voltage, 0),
-            'U1': round(pos_sequence_voltage, 0)  # Остаточное напряжение прямой последовательности
+            'U1': round(pos_sequence_voltage, 0),  # Остаточное напряжение прямой последовательности
+            '3U0': round(3 * zero_sequence_voltage, 0) if zero_sequence_voltage > 0 else 0  # Утроенное напряжение нулевой последовательности (кВ)
         }
 
         # Удаляем ссылку на COM
         del fault
 
         return results
+
+    @staticmethod
+    def _get_required_fault_types_for_location(location: str) -> Set[str]:
+        """
+        Получает необходимые типы КЗ в формате PowerFactory для указанного места.
+        
+        Args:
+            location: Место выполнения КЗ (FAULT_LOCATION_OPPOSITE_END или FAULT_LOCATION_BRANCHES)
+            
+        Returns:
+            Множество типов КЗ в формате PowerFactory (например, {'3psc', 'spgf', '2psc'})
+        """
+        required_types = set()
+        
+        # Получаем все органы, для которых нужно проверять чувствительность
+        organs_requiring_faults = SensitivityFaultMap.get_all_organs_requiring_faults()
+        
+        for organ_name in organs_requiring_faults:
+            fault_map = SensitivityFaultMap.get_fault_map(organ_name)
+            if not fault_map:
+                continue
+            
+            # Проверяем, нужно ли моделировать КЗ в этом месте для этого органа
+            fault_locations = fault_map.get("fault_locations", [])
+            if location not in fault_locations:
+                continue
+            
+            # Получаем типы КЗ для этого органа
+            fault_types = fault_map.get("fault_types", [])
+            
+            # Преобразуем типы КЗ в формат PowerFactory
+            for pf_type, ru_type in POWERFACTORY_FAULT_TYPES.items():
+                if ru_type in fault_types:
+                    required_types.add(pf_type)
+        
+        return required_types
 
     @staticmethod
     def _disconnect_submode_elements(submode_elements, disconnect: bool) -> None:
