@@ -61,7 +61,7 @@ SETTINGS_CALCULATION_MAP = {
             },
             'i0_block_reset_factor': {
                 'label': 'Коэффициент возврата',
-                'default_value': 0.95
+                'default_value': 0.9
             }
         },
         'calculation_function': 'calculate_3i0_block'
@@ -89,12 +89,30 @@ SETTINGS_CALCULATION_MAP = {
         'calculation_function': 'calculate_di1_break'
     },
     'DI2 БЛОК': {
-        'calculation_factors': {},
-        'calculation_function': 'calculate_i2_block'
+        'calculation_factors': {
+            'di2_imbalance_factor': {
+                'label': 'Коэффициент небаланса',
+                'default_value': 0.05
+            },
+            'di2_grading_factor': {
+                'label': 'Коэффициент отстройки',
+                'default_value': 1.3
+            },
+            'di2_reset_factor': {
+                'label': 'Коэффициент возврата',
+                'default_value': 0.9
+            }
+        },
+        'calculation_function': 'calculate_di2_block'
     },
     'DI2 ОТКЛ': {
-        'calculation_factors': {},
-        'calculation_function': 'calculate_i2_break'
+        'calculation_factors': {
+            'di2_matching_factor': {
+                'label': 'Коэффициент согласования',
+                'default_value': 1.4
+            }
+        },
+        'calculation_function': 'calculate_di2_break'
     },
     'U2 БЛОК': {
         'calculation_factors': {
@@ -107,8 +125,12 @@ SETTINGS_CALCULATION_MAP = {
                 'default_value': 0.9
             },
             'u2_imbalance_voltage': {
-                'label': 'Напряжение небаланса',
+                'label': 'Напряжение небаланса U_2нб (В, фазных вторичных, 1.5-2 В)',
                 'default_value': 1.5
+            },
+            'u2_load_voltage': {
+                'label': 'Напряжение U_2н.р (В, фазных вторичных, в нагрузочном режиме)',
+                'default_value': 0.0
             }
         },
         'calculation_function': 'calculate_u2_block'
@@ -117,18 +139,13 @@ SETTINGS_CALCULATION_MAP = {
         'calculation_factors': {
             'u2_matching_factor': {
                 'label': 'Коэффициент согласования',
-                'default_value': 2.0
+                'default_value': 1.4
             }
         },
         'calculation_function': 'calculate_u2_break'
     },
     'K МАН': {
-        'calculation_factors': {
-            'manipulation_grading_factor': {
-                'label': 'Коэффициент отстройки',
-                'default_value': 1.5
-            }
-        },
+        'calculation_factors': {},
         'calculation_function': 'calculate_manipulation_factor'
     },
     'УГОЛ БЛОК': {

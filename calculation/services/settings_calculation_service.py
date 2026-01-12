@@ -8,10 +8,12 @@ from core.models import Component, ProtectionHalfSet
 
 class SettingsCalculationService:
     def __init__(
-        self, calculation_meta: CalculationMeta, calculation_factors: Dict[str, float]
+        self, calculation_meta: CalculationMeta, calculation_factors: Dict[str, float], enabled_organs: Dict[str, bool] = None
     ):
         # Определяем словарь коэффициентов
         self.calculation_factors = calculation_factors or {}
+        # Словарь состояния включения/отключения органов (для необязательных органов)
+        self.enabled_organs = enabled_organs or {}
 
         # Определяем мета-данные расчета
         self.calculation_meta = calculation_meta
@@ -30,18 +32,20 @@ class SettingsCalculationService:
         # Для ТТ: используем ratio из связанного трансформатора
         self.current_transformer_ratio = self.line.ct.ratio if self.line.ct else 1000
         # Для ТН: используем calculate_ratio с напряжением ЛЭП из PowerFactory
-        # (ratio в VoltageTransformer вычисляется на основе primary_voltage,
-        # но для использования с ЛЭП нужно использовать напряжение ЛЭП)
-        self.voltage_transformer_factor = (
-            self.line.vt.calculate_ratio(self.line.voltage_level)
-            if self.line.vt and self.line.voltage_level
-            else 5000
-        )
+        # calculate_ratio возвращает относительный коэффициент (например, 1.27 для 220 кВ DELTA)
+        # Умножаем на 1000 для получения абсолютного коэффициента трансформации в вольтах
+        # (например, 1270 для 220 кВ DELTA или 2200 для 220 кВ STAR)
+        if self.line.vt and self.line.voltage_level:
+            relative_ratio = self.line.vt.calculate_ratio(self.line.voltage_level)
+            self.voltage_transformer_factor = relative_ratio * 1000
+        else:
+            self.voltage_transformer_factor = 5000
 
         # Коэффициент чувствительности токовых органов
         self.current_sensitivity_rate = 2
 
         # Карта расчетных функций органов
+        # Поддерживаем оба варианта названия: "К МАН" (кириллица) и "K МАН" (латиница)
         self.CALCULATION_MAP = {
             "IЛ БЛОК": self.calculate_il_block,
             "IЛ ОТКЛ": self.calculate_il_break,
@@ -51,11 +55,12 @@ class SettingsCalculationService:
             "3I0 ОТКЛ": self.calculate_3i0_break,
             "DI1 БЛОК": self.calculate_di1_block,
             "DI1 ОТКЛ": self.calculate_di1_break,
-            "DI2 БЛОК": self.calculate_i2_block,
-            "DI2 ОТКЛ": self.calculate_i2_break,
+            "DI2 БЛОК": self.calculate_di2_block,
+            "DI2 ОТКЛ": self.calculate_di2_break,
             "U2 БЛОК": self.calculate_u2_block,
             "U2 ОТКЛ": self.calculate_u2_break,
-            "K МАН": self.calculate_manipulation_factor,
+            "K МАН": self.calculate_manipulation_factor,  # Латиница
+            "К МАН": self.calculate_manipulation_factor,  # Кириллица (для совместимости)
             "УГОЛ БЛОК": self.calculate_blocking_angle,
             "РТНП/3I0_M0": self.calculate_rtnp,
             "РННП/3U0_M0": self.calculate_rnnp,
@@ -133,41 +138,102 @@ class SettingsCalculationService:
             blocking_angle = 65
         return blocking_angle, {}
 
-    # refactor
     def calculate_manipulation_factor(self) -> Tuple[float, Dict[str, float]]:
-        manipulation_grading_factor = self.calculation_factors.get(
-            "manipulation_grading_factor", 1.5
-        )
+        """
+        Рассчитывает коэффициент манипуляции для каждого полукомплекта по условию 
+        обеспечения преимущественного сравнения токов манипуляции по току обратной 
+        последовательности при КЗ на землю на противоположном конце защищаемой ЛЭП.
+        
+        При двухфазном КЗ на землю (К(1,1)):
+        K_М ≥ k_н * ((I_1^К(1,1) + I_ДДРТ) / I_2^К(1,1))
+        
+        При однофазном КЗ (К(1)):
+        K_М ≥ k_н * (I_ДДРТ / I_2^К(1))
+        
+        где:
+        - k_н = 1.5 - коэффициент надежности манипуляции
+        - I_ДДРТ - длительно допустимый рабочий ток защищаемой ЛЭП (load_current, в А)
+        - I_1^К(1,1) - ток прямой последовательности при двухфазном КЗ на землю 
+          на противоположном конце (в мА, переводим в А)
+        - I_2^К(1,1) - ток обратной последовательности при двухфазном КЗ на землю 
+          на противоположном конце (в мА, переводим в А)
+        - I_2^К(1) - ток обратной последовательности при однофазном КЗ 
+          на противоположном конце (в мА, переводим в А)
+        
+        Коэффициент манипуляции выбирается по максимальному значению из двух условий.
+        """
+        k_n = self.calculation_factors.get("manipulation_grading_factor", 1.5)
+        
+        # Получаем расчеты КЗ на противоположном конце (perform_fault_calculation создает их)
         fault_calculations = FaultCalculation.objects.filter(
             protection_half_set__in=self.protection_half_sets,
             fault_type__in=["К(1)", "К(1,1)"],
+            calculation_meta=self.calculation_meta,
         )
+        
         manipulation_factors = []
+        
         for fault_calculation in fault_calculations:
-            if fault_calculation.fault_type == "К(1,1)":
-                manipulation_factor = manipulation_grading_factor * (
-                    (
-                        fault_calculation.fault_values.get("I1")
-                        + self.load_current
-                    )
-                    / 1
-                )
-                manipulation_factors.append(manipulation_factor)
-            elif fault_calculation.fault_type == "К(1)":
-                manipulation_factor = manipulation_grading_factor * (
-                    self.load_current / 1
-                )
-                manipulation_factors.append(manipulation_factor)
-        max_manipulating_factor = max(manipulation_factors)
-        calculation_factors = {"Коэффициент отстройки": manipulation_grading_factor}
-        return max_manipulating_factor, calculation_factors
+            fault_type = fault_calculation.fault_type
+            fault_values = fault_calculation.fault_values or {}
+            
+            if fault_type == "К(1,1)":
+                # Формула для двухфазного КЗ на землю: K_М ≥ k_н * ((I_1^К(1,1) + I_ДДРТ) / I_2^К(1,1))
+                i1_k11 = fault_values.get("I1", 0)  # в мА
+                i2_k11 = fault_values.get("I2", 0)  # в мА
+                
+                if i2_k11 and i2_k11 != 0:
+                    # Переводим токи из мА в А
+                    i1_k11_a = i1_k11 / 1000
+                    i2_k11_a = i2_k11 / 1000
+                    
+                    manipulation_factor = k_n * ((i1_k11_a + self.load_current) / i2_k11_a)
+                    manipulation_factors.append(manipulation_factor)
+                    
+            elif fault_type == "К(1)":
+                # Формула для однофазного КЗ: K_М ≥ k_н * (I_ДДРТ / I_2^К(1))
+                i2_k1 = fault_values.get("I2", 0)  # в мА
+                
+                if i2_k1 and i2_k1 != 0:
+                    # Переводим ток из мА в А
+                    i2_k1_a = i2_k1 / 1000
+                    
+                    manipulation_factor = k_n * (self.load_current / i2_k1_a)
+                    manipulation_factors.append(manipulation_factor)
+        
+        if not manipulation_factors:
+            # Если расчетов нет, возвращаем значение по умолчанию
+            return 0.0, {"Коэффициент надежности манипуляции": k_n}
+        
+        # Выбираем максимальное значение из всех условий
+        # Округление до стандартных значений выполняется в методе run()
+        max_manipulation_factor = max(manipulation_factors)
+        
+        calculation_factors = {
+            "Коэффициент надежности манипуляции": k_n,
+        }
+        
+        return max_manipulation_factor, calculation_factors
 
     def calculate_il_block(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку блокирующего органа по фазному току (с пуском по векторной разности фазных токов).
+        
+        Формула: Iл блок ≥ k_сх ∙ k_отс/k_в ∙ I_ДДРТ
+        где:
+        - k_сх = √3 - коэффициент схемы для органов с пуском по векторной разности фазных токов
+        - k_отс = 1.2-1.3 - коэффициент отстройки (по умолчанию 1.3)
+        - k_в - коэффициент возврата (зависит от производителя: ЭКРА = 0.9, Релематика/Бреслер = 0.95)
+        - I_ДДРТ - длительно допустимый рабочий ток защищаемой ЛЭП (load_current)
+        """
         il_grading_factor = self.calculation_factors.get("il_grading_factor", 1.3)
-        il_reset_factor = self.calculation_factors.get("il_reset_factor", 0.9)
-        il_block_value = (
-            sqrt(3) * il_grading_factor / il_reset_factor * self.load_current
-        )
+        # Определяем коэффициент возврата в зависимости от производителя
+        il_reset_factor = self.calculation_factors.get("il_reset_factor", self._get_reset_factor(default_value=0.9))
+        k_sx = sqrt(3)  # Коэффициент схемы для органов с пуском по векторной разности фазных токов
+        
+        # Формула: Iл блок = k_сх ∙ k_отс/k_в ∙ I_ДДРТ
+        il_block_value = k_sx * il_grading_factor / il_reset_factor * self.load_current
+        
         calculation_factors = {
             "Коэффициент отстройки": il_grading_factor,
             "Коэффициент возврата": il_reset_factor,
@@ -175,56 +241,269 @@ class SettingsCalculationService:
         return il_block_value, calculation_factors
 
     def calculate_il_break(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку отключающего органа по фазному току.
+        
+        Формула: I_откл ≥ k_согл ∙ I_бл
+        где:
+        - k_согл = 1.4-2.0 - коэффициент согласования (по умолчанию 1.4)
+        - I_бл - уставка блокирующего органа (Iл блок)
+        
+        Дополнительно учитывается коэффициент ответвлений K_отв = 2 для линий с ответвлениями.
+        """
         il_block_value = self.calculate_il_block()[0]
         il_matching_factor = self.calculation_factors.get("il_matching_factor", 1.4)
+        
+        # Формула: I_откл = k_согл ∙ I_бл
         il_break_value = il_matching_factor * il_block_value
-        calculation_factors = {"Коэффициент согласования": il_matching_factor}
+        
+        # Проверяем наличие ответвлений и применяем коэффициент ответвлений K_отв = 2
+        k_otv = 1.0
+        has_branches = False
+        if self.line:
+            # Проверяем наличие активных ответвлений
+            if self.line.branch_count and self.line.branch_count > 0:
+                has_branches = True
+            elif hasattr(self.line, 'branches'):
+                has_branches = self.line.branches.filter(is_active=True).exists()
+        
+        if has_branches:
+            k_otv = 2.0
+            il_break_value = il_break_value * k_otv
+            print(f"[DEBUG] Для IЛ ОТКЛ применен коэффициент ответвления = {k_otv}")
+        
+        calculation_factors = {
+            "Коэффициент согласования": il_matching_factor,
+        }
+        # Не добавляем коэффициент ответвления в calculation_factors
+        
         return il_break_value, calculation_factors
 
-    def calculate_di1_break(self) -> Tuple[float, Dict[str, float]]:
+    def calculate_di1_break(self) -> float:
+        """
+        Рассчитывает уставку отключающего органа по приращению тока прямой последовательности
+        (обеспечение чувствительности).
+        
+        Формула: DI_1откл = (I_1^(К(3)))/k_ч
+        где:
+        - I_1^(К(3)) - ток прямой последовательности, протекающий через рассматриваемый полукомплект 
+          при трехфазном КЗ на противоположном конце защищаемой ЛЭП (берется минимальный из всех 
+          подрежимов сети для обеспечения чувствительности во всех режимах)
+        - k_ч = 2 - требуемый коэффициент чувствительности
+        """
+        # Получаем все расчеты трехфазных КЗ для полукомплектов защиты
         fault_calculations = FaultCalculation.objects.filter(
-            protection_half_set__in=self.protection_half_sets, fault_type="К(3)"
+            protection_half_set__in=self.protection_half_sets, 
+            fault_type="К(3)"
         )
 
         pos_sequence_currents = []
         for fault_calculation in fault_calculations:
             pos_sequence_current = fault_calculation.fault_values.get("I1")
-            if pos_sequence_current != 0:
-                pos_sequence_currents.append(fault_calculation.fault_values.get("I1"))
+            if pos_sequence_current and pos_sequence_current != 0:
+                pos_sequence_currents.append(pos_sequence_current)
 
-        min_i1 = min(pos_sequence_currents)
-        di1_break_value = min_i1 / self.current_sensitivity_rate
-        calculation_factors = {
-            "Коэффициент чувствительности": self.current_sensitivity_rate
-        }
+        if not pos_sequence_currents:
+            # Если расчетов нет, возвращаем 0
+            return 0.0, 
 
-        return di1_break_value, calculation_factors
+        # Берем минимальный ток для обеспечения чувствительности во всех режимах сети
+        min_i1 = min(pos_sequence_currents)  # в мА
+        
+        # Формула: DI_1откл = (I_1^(К(3)))/k_ч
+        # Переводим из мА в А
+        di1_break_value = min_i1 / self.current_sensitivity_rate / 1000
+        
+        return di1_break_value
 
     def calculate_di1_block(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку блокирующего органа по приращению тока прямой последовательности
+        (согласование с отключающим).
+        
+        Формула: DI_1бл ≤ (DI_1откл)/k_согл
+        где:
+        - DI_1откл - уставка отключающего органа
+        - k_согл = 1.4-2.0 - коэффициент согласования (по умолчанию 1.4)
+        
+        Примечание: Формула определяет максимальное значение DI_1бл (верхняя граница),
+        поэтому используем равенство для расчета конкретного значения уставки.
+        """
         di1_break_value = self.calculate_di1_break()[0]
         di1_matching_factor = self.calculation_factors.get("di1_matching_factor", 1.4)
+        
+        # Формула: DI_1бл = (DI_1откл)/k_согл
         di1_block_value = di1_break_value / di1_matching_factor
-        calculation_factors = {"Коэффициент согласования": di1_matching_factor}
+        
+        calculation_factors = {
+            "Коэффициент согласования": di1_matching_factor
+        }
         return di1_block_value, calculation_factors
 
+    def calculate_di2_block(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку блокирующего органа по приращению тока обратной последовательности
+        (отстройка от тока небаланса).
+        
+        Формула: DI2 БЛОК = k_отс/k_в * I_2нб
+        где:
+        - I_2нб = k_2нб * I_ДДРТ - ток небаланса обратной последовательности, обусловленный 
+          погрешностями трансформаторов тока и фильтров токов обратной последовательности
+        - k_2нб = 0.05 - коэффициент небаланса по току обратной последовательности
+        - I_ДДРТ - длительно допустимый рабочий ток защищаемой ЛЭП (load_current)
+        - k_отс = 1.2-1.3 - коэффициент отстройки (по умолчанию 1.3)
+        - k_в - коэффициент возврата (принимается по техническим данным защиты, 
+          зависит от производителя: ЭКРА = 0.9, Релематика/Бреслер = 0.95)
+        """
+        di2_imbalance_factor = self.calculation_factors.get("di2_imbalance_factor", 0.05)
+        di2_grading_factor = self.calculation_factors.get("di2_grading_factor", 1.3)
+        
+        # Определяем коэффициент возврата в зависимости от производителя
+        di2_reset_factor = self._get_reset_factor(default_value=0.9)
+        
+        # Ток небаланса обратной последовательности: I_2нб = k_2нб * I_ДДРТ
+        i2_imbalance_current = di2_imbalance_factor * self.load_current
+        
+        # Формула: DI_2бл = k_отс/k_в * I_2нб
+        di2_block_value = di2_grading_factor / di2_reset_factor * i2_imbalance_current
+        
+        calculation_factors = {
+            "Коэффициент небаланса": di2_imbalance_factor,
+            "Коэффициент отстройки": di2_grading_factor,
+            "Коэффициент возврата": di2_reset_factor,
+        }
+        return di2_block_value, calculation_factors
+
+    def calculate_di2_break(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку отключающего органа по приращению тока обратной последовательности
+        (согласование с блокирующим).
+        
+        Формула: DI2 ОТКЛ = k_согл * I2 БЛОК
+        где:
+        - I2 БЛОК - уставка блокирующего органа
+        - k_согл = 1.4-2.0 - коэффициент согласования (по умолчанию 1.4)
+        """
+        i2_block_value = self.calculate_i2_block()[0]
+        di2_matching_factor = self.calculation_factors.get("di2_matching_factor", 1.4)
+        
+        # Формула: DI_2откл = k_согл * I_2бл
+        di2_break_value = di2_matching_factor * i2_block_value
+        
+        calculation_factors = {
+            "Коэффициент согласования": di2_matching_factor,
+        }
+        return di2_break_value, calculation_factors
+
+    def _get_reset_factor(self, default_value: float = 0.9) -> float:
+        """
+        Определяет коэффициент возврата в зависимости от производителя устройства защиты.
+        
+        Правила:
+        - ЭКРА: k_в = 0.9
+        - Релематика и Бреслер: k_в = 0.95
+        - По умолчанию: используется значение default_value (обычно 0.9, для 3I0 БЛОК может быть 0.95)
+        
+        Args:
+            default_value: Значение коэффициента возврата по умолчанию (по умолчанию 0.9)
+        
+        Returns:
+            Коэффициент возврата (float)
+        """
+        # Пытаемся получить производителя из текущего полукомплекта
+        # Если self.current_protection_half_set не установлен, используем значение по умолчанию
+        if hasattr(self, 'current_protection_half_set') and self.current_protection_half_set:
+            protection_device = self.current_protection_half_set.protection_device
+            if protection_device and protection_device.manufacturer_fk:
+                manufacturer_name = protection_device.manufacturer_fk.name
+                
+                # Проверяем название производителя
+                if manufacturer_name and "ЭКРА" in manufacturer_name.upper():
+                    return 0.9
+                elif manufacturer_name and ("РЕЛЕМАТИКА" in manufacturer_name.upper() or 
+                                            "БРЕСЛЕР" in manufacturer_name.upper()):
+                    return 0.95
+        
+        # Значение по умолчанию
+        return default_value
+
     def calculate_i2_block(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку блокирующего органа по току обратной последовательности
+        (отстройка от тока небаланса).
+        
+        Формула: I_2бл ≥ k_отс/k_в * (I_2нб + I_(2н.р))
+        где:
+        - I_2нб = k_2нб * I_ДДРТ - ток небаланса обратной последовательности
+          k_2нб = 0.05 - коэффициент небаланса по току обратной последовательности
+          I_ДДРТ - длительно допустимый рабочий ток защищаемой ЛЭП (load_current)
+        - I_(2н.р) - ток обратной последовательности, обусловленный несимметрией 
+          в системе в нагрузочном режиме (по умолчанию 0 при отсутствии несимметрии)
+        - k_отс = 1.2-1.3 - коэффициент отстройки (по умолчанию 1.3)
+        - k_в - коэффициент возврата (зависит от производителя: ЭКРА = 0.9, Релематика/Бреслер = 0.95)
+        """
         i2_imbalance_factor = self.calculation_factors.get("i2_imbalance_factor", 0.05)
         i2_grading_factor = self.calculation_factors.get("i2_grading_factor", 1.3)
-        i2_reset_factor = self.calculation_factors.get("i2_reset_factor", 0.9)
+        # Ток обратной последовательности в нагрузочном режиме (по умолчанию 0)
+        i2_load_current = self.calculation_factors.get("i2_load_current", 0.0)
+        
+        # Определяем коэффициент возврата в зависимости от производителя
+        i2_reset_factor = self.calculation_factors.get("i2_reset_factor", self._get_reset_factor(default_value=0.9))
+        
+        # Ток небаланса обратной последовательности: I_2нб = k_2нб * I_ДДРТ
         i2_imbalance_current = i2_imbalance_factor * self.load_current
-        i2_block_value = i2_grading_factor / i2_reset_factor * i2_imbalance_current
+        
+        # Формула: I_2бл = k_отс/k_в * (I_2нб + I_(2н.р))
+        i2_block_value = i2_grading_factor / i2_reset_factor * (i2_imbalance_current + i2_load_current)
+        
         calculation_factors = {
             "Коэффициент небаланса": i2_imbalance_factor,
             "Коэффициент отстройки": i2_grading_factor,
             "Коэффициент возврата": i2_reset_factor,
         }
+        
+        if i2_load_current > 0:
+            calculation_factors["Ток I_(2н.р)"] = i2_load_current
+        
         return i2_block_value, calculation_factors
 
     def calculate_i2_break(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку отключающего органа по току обратной последовательности
+        (согласование с блокирующим).
+        
+        Формула: I_2откл ≥ k_согл * I_2бл
+        где:
+        - I_2бл - уставка блокирующего органа
+        - k_согл = 1.4-2.0 - коэффициент согласования (по умолчанию 1.4)
+        
+        Дополнительно учитывается коэффициент ответвлений K_отв = 2 для линий с ответвлениями.
+        """
         i2_block_value = self.calculate_i2_block()[0]
         i2_matching_factor = self.calculation_factors.get("i2_matching_factor", 1.4)
+        
+        # Формула: I_2откл = k_согл * I_2бл
         i2_break_value = i2_matching_factor * i2_block_value
-        calculation_factors = {"Коэффициент согласования": i2_matching_factor}
+        
+        # Проверяем наличие ответвлений и применяем коэффициент ответвлений K_отв = 2
+        k_otv = 1.0
+        has_branches = False
+        if self.line:
+            # Проверяем наличие активных ответвлений
+            if self.line.branch_count and self.line.branch_count > 0:
+                has_branches = True
+            elif hasattr(self.line, 'branches'):
+                has_branches = self.line.branches.filter(is_active=True).exists()
+        
+        if has_branches:
+            k_otv = 2.0
+            i2_break_value = i2_break_value * k_otv
+            print(f"[DEBUG] Для I2 ОТКЛ применен коэффициент ответвления = {k_otv}")
+        
+        calculation_factors = {
+            "Коэффициент согласования": i2_matching_factor,
+        }
+        
         return i2_break_value, calculation_factors
 
     def calculate_3i0_block(self) -> Tuple[float, Dict[str, float]]:
@@ -238,7 +517,8 @@ class SettingsCalculationService:
         """
         i0_imbalance_factor = self.calculation_factors.get("i0_imbalance_factor", 0.05)
         i0_block_grading_factor = self.calculation_factors.get("i0_block_grading_factor", 1.2)
-        i0_block_reset_factor = self.calculation_factors.get("i0_block_reset_factor", 0.95)
+        # Определяем коэффициент возврата в зависимости от производителя (для 3I0 БЛОК по умолчанию 0.95)
+        i0_block_reset_factor = self.calculation_factors.get("i0_block_reset_factor", self._get_reset_factor(default_value=0.9))
         
         # Ток небаланса нулевой последовательности
         i0_imbalance_current = i0_imbalance_factor * self.load_current
@@ -260,11 +540,14 @@ class SettingsCalculationService:
         Рассчитывает уставку отключающего ИО тока нулевой последовательности.
         
         Формула: 3I0 ОТКЛ = K_ОТС * 3I0_БЛОК
-        где K_ОТС - коэффициент отстройки (1.5)
+        где:
+        - K_ОТС = 1.5-2.0 - коэффициент отстройки (по умолчанию 1.5)
+        - 3I0_БЛОК - уставка блокирующего органа
         """
         i0_block_value = self.calculate_3i0_block()[0]
         i0_break_grading_factor = self.calculation_factors.get("i0_break_grading_factor", 1.5)
         
+        # Формула: 3I0 ОТКЛ = K_ОТС * 3I0_БЛОК
         i0_break_value = i0_break_grading_factor * i0_block_value
         
         calculation_factors = {
@@ -272,34 +555,78 @@ class SettingsCalculationService:
         }
         return i0_break_value, calculation_factors
 
-    # hardcode
     def calculate_u2_block(self) -> Tuple[float, Dict[str, float]]:
-        """Рассчитывает уставку блокировки по напряжению обратной последовательности."""
+        """
+        Рассчитывает уставку блокирующего органа по напряжению обратной последовательности
+        (отстройка от напряжения небаланса).
+        
+        Формула: U_2бл ≥ k_отс/k_в * (U_2нб + U_(2н.р))
+        где:
+        - U_2нб - напряжение небаланса обратной последовательности, обусловленное 
+          погрешностями ТН и фильтра напряжения обратной последовательности 
+          (в расчетах может быть принято значение U_2нб, не превышающее 1,5-2 В фазных вторичных)
+        - U_2н.р - напряжение обратной последовательности, обусловленное несимметрией 
+          в системе в нагрузочном режиме (по умолчанию 0 при отсутствии несимметрии)
+        - k_отс = 1.2-1.3 - коэффициент отстройки (по умолчанию 1.3)
+        - k_в - коэффициент возврата (принимается по техническим данным защиты, 
+          зависит от производителя: ЭКРА = 0.9, Релематика/Бреслер = 0.95)
+        """
         u2_grading_factor = self.calculation_factors.get("u2_grading_factor", 1.3)
-        u2_reset_factor = self.calculation_factors.get("u2_reset_factor", 0.9)
+        # Определяем коэффициент возврата в зависимости от производителя
+        u2_reset_factor = self.calculation_factors.get("u2_reset_factor", self._get_reset_factor(default_value=0.9))
+        # Напряжение небаланса обратной последовательности (1.5-2 В фазных вторичных)
         u2_imbalance_voltage = self.calculation_factors.get("u2_imbalance_voltage", 1.5)
+        # Напряжение обратной последовательности в нагрузочном режиме (по умолчанию 0)
+        u2_load_voltage = self.calculation_factors.get("u2_load_voltage", 0.0)
 
-        # Используем уже вычисленный коэффициент трансформации ТН
-        vt_ratio = self.voltage_transformer_factor
-
-        u2_block_value = (
+        # U_2нб и U_(2н.р) задаются во вторичных вольтах (В)
+        # Формула: U_2бл = k_отс/k_в * (U_2нб + U_(2н.р))
+        # Результат во вторичных вольтах, переводим в первичные кВ для сохранения в БД
+        u2_block_value_secondary = (
             u2_grading_factor
             / u2_reset_factor
-            * (u2_imbalance_voltage * vt_ratio)
-            / 1000
+            * (u2_imbalance_voltage + u2_load_voltage)
         )
+        
+        # Переводим из вторичных вольт в первичные кВ для сохранения в БД
+        # В save_result_to_db будет обратное преобразование для secondary_value
+        vt_ratio = self.voltage_transformer_factor
+        if vt_ratio and vt_ratio > 0:
+            u2_block_value = u2_block_value_secondary * vt_ratio / 1000  # в кВ
+        else:
+            # Если коэффициент трансформации не задан, используем значение по умолчанию
+            u2_block_value = u2_block_value_secondary * 5000 / 1000  # в кВ
+        
         calculation_factors = {
             "Коэффициент отстройки": u2_grading_factor,
             "Коэффициент возврата": u2_reset_factor,
-            "Напряжение небаланса": u2_imbalance_voltage,
+            "Напряжение небаланса (В)": u2_imbalance_voltage,
         }
+        
+        if u2_load_voltage > 0:
+            calculation_factors["Напряжение U_2н.р (В)"] = u2_load_voltage
+        
         return u2_block_value, calculation_factors
 
     def calculate_u2_break(self) -> Tuple[float, Dict[str, float]]:
+        """
+        Рассчитывает уставку отключающего органа по напряжению обратной последовательности
+        (согласование с блокирующим).
+        
+        Формула: U_2откл ≥ k_согл * U_2бл
+        где:
+        - U_2бл - уставка блокирующего органа
+        - k_согл = 1.4-2.0 - коэффициент согласования (по умолчанию 1.4)
+        """
         u2_block_value = self.calculate_u2_block()[0]
-        u2_matching_factor = self.calculation_factors.get("u2_matching_factor", 2.0)
+        u2_matching_factor = self.calculation_factors.get("u2_matching_factor", 1.4)
+        
+        # Формула: U_2откл = k_согл * U_2бл
         u2_break_value = u2_matching_factor * u2_block_value
-        calculation_factors = {"Коэффициент согласования": u2_matching_factor}
+        
+        calculation_factors = {
+            "Коэффициент согласования": u2_matching_factor
+        }
         return u2_break_value, calculation_factors
 
     def calculate_rtnp(self) -> Tuple[float, Dict[str, float]]:
@@ -317,7 +644,8 @@ class SettingsCalculationService:
         """
         rtnp_imbalance_factor = self.calculation_factors.get("rtnp_imbalance_factor", 0.05)
         rtnp_grading_factor = self.calculation_factors.get("rtnp_grading_factor", 1.25)
-        rtnp_reset_factor = self.calculation_factors.get("rtnp_reset_factor", 0.9)
+        # Определяем коэффициент возврата в зависимости от производителя
+        rtnp_reset_factor = self.calculation_factors.get("rtnp_reset_factor", self._get_reset_factor(default_value=0.9))
         
         # Ток небаланса нулевой последовательности
         i0_imbalance_current = rtnp_imbalance_factor * self.load_current
@@ -349,7 +677,8 @@ class SettingsCalculationService:
         - k_в - коэффициент возврата (0.9)
         """
         rnnp_grading_factor = self.calculation_factors.get("rnnp_grading_factor", 1.25)
-        rnnp_reset_factor = self.calculation_factors.get("rnnp_reset_factor", 0.9)
+        # Определяем коэффициент возврата в зависимости от производителя
+        rnnp_reset_factor = self.calculation_factors.get("rnnp_reset_factor", self._get_reset_factor(default_value=0.9))
         rnnp_imbalance_voltage_secondary = self.calculation_factors.get(
             "rnnp_imbalance_voltage", 1.5
         )  # В вторичных величинах (В)
@@ -551,10 +880,8 @@ class SettingsCalculationService:
         # Просто берем значение из R ОТКЛ
         r_break_value, _ = self.calculate_r_break()
         
-        calculation_factors = {
-            "Примечание": "R ОТВ = R ОТКЛ",
-        }
-        return r_break_value, calculation_factors
+        # Не добавляем примечание в calculation_factors
+        return r_break_value, {}
 
     def calculate_x_otv(self) -> Tuple[float, Dict[str, float]]:
         """
@@ -831,21 +1158,113 @@ class SettingsCalculationService:
         return 1.75 if steel_type == 'cold' else 2.65
 
     def run(self) -> None:
+        print(f"[DEBUG] SettingsCalculationService.run() начат")
+        print(f"[DEBUG] Количество полукомплектов: {self.protection_half_sets.count()}")
+        print(f"[DEBUG] calculation_factors: {self.calculation_factors}")
+        
+        # Специальная обработка для коэффициента манипуляции:
+        # Сначала собираем все рассчитанные значения для всех полукомплектов,
+        # затем выбираем максимальное, округляем и применяем одинаковое значение для всех
+        manipulation_factor_values = []
+        manipulation_factor_components = []  # Список (protection_half_set, component) для K МАН
+        
+        total_saved = 0
         for protection_half_set in self.protection_half_sets:
-            components = protection_half_set.protection_device.components.all()
+            # Сохраняем текущий полукомплект для доступа в функциях расчета
+            self.current_protection_half_set = protection_half_set
+            
+            protection_device = protection_half_set.protection_device
+            print(f"[DEBUG] Полукомплект: {protection_half_set}")
+            print(f"[DEBUG] Устройство защиты: {protection_device} (ID: {protection_device.id})")
+            
+            components = protection_device.components.all()
+            print(f"[DEBUG] Компонентов у устройства '{protection_device}': {components.count()}")
+            
+            if components.count() == 0:
+                print(f"[WARNING] У устройства защиты '{protection_device}' нет связанных компонентов!")
+                print(f"[WARNING] Необходимо добавить компоненты к устройству защиты через админ-панель Django или команду управления.")
+                # Продолжаем для следующего полукомплекта
+                continue
 
             for component in components:
+                # Пропускаем необязательные органы, если они отключены
+                # Необязательные органы: U2 БЛОК, U2 ОТКЛ, 3I0 БЛОК, 3I0 ОТКЛ, DI1 БЛОК, DI1 ОТКЛ, DI2 БЛОК, DI2 ОТКЛ
+                organ_name = component.setting_designation
+                toggleable_organs = ['U2 БЛОК', 'U2 ОТКЛ', '3I0 БЛОК', '3I0 ОТКЛ', 'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ']
+                if organ_name in toggleable_organs:
+                    # Проверяем, включен ли орган
+                    is_enabled = self.enabled_organs.get(organ_name, False)
+                    if not is_enabled:
+                        print(f"[DEBUG] Орган {organ_name} отключен, пропускаем расчет")
+                        continue
+                
                 calculation_function = self.get_calculation_function(component)
 
                 if calculation_function:
-                    result, factors = calculation_function()
-                    result = round(result, 0)
-                    self.save_result_to_db(
-                        protection_half_set=protection_half_set,
-                        component=component,
-                        calculation_factors=factors,
-                        result_value=result,
-                    )
-
+                    try:
+                        # Для коэффициента манипуляции собираем значения, но не сохраняем сразу
+                        if component.setting_designation in ["K МАН", "К МАН"]:
+                            result, factors = calculation_function()
+                            manipulation_factor_values.append(result)
+                            manipulation_factor_components.append((protection_half_set, component, factors))
+                            print(f"[DEBUG] Собрано значение K МАН для {component.setting_designation}: {result}")
+                        else:
+                            result, factors = calculation_function()
+                            result = round(result, 0)
+                            self.save_result_to_db(
+                                protection_half_set=protection_half_set,
+                                component=component,
+                                calculation_factors=factors,
+                                result_value=result,
+                            )
+                            total_saved += 1
+                            print(f"[DEBUG] Сохранен результат для {component.setting_designation}: {result}")
+                    except Exception as e:
+                        print(f"[ERROR] Ошибка при расчете для {component.setting_designation}: {e}")
+                        import traceback
+                        print(f"[ERROR] Traceback: {traceback.format_exc()}")
                 else:
-                    print(f"\tОтсутствует расчетный модуль для органа {component}")
+                    print(f"[WARNING] Отсутствует расчетный модуль для органа {component.setting_designation}")
+        
+        # Обрабатываем коэффициент манипуляции: выбираем максимальное значение и округляем
+        if manipulation_factor_values:
+            max_manipulation_factor = max(manipulation_factor_values)
+            
+            # Округляем до стандартных значений:
+            # Если K ≤ 6, то K = 6
+            # Если 6 < K ≤ 8, то K = 8
+            # Если 8 < K ≤ 10, то K = 10
+            # Если K > 10, то остается как есть
+            if max_manipulation_factor <= 6:
+                final_manipulation_factor = 6.0
+            elif max_manipulation_factor <= 8:
+                final_manipulation_factor = 8.0
+            elif max_manipulation_factor <= 10:
+                final_manipulation_factor = 10.0
+            else:
+                final_manipulation_factor = max_manipulation_factor
+            
+            print(f"[DEBUG] Максимальное значение K МАН: {max_manipulation_factor}, округлено до: {final_manipulation_factor}")
+            
+            # Применяем одинаковое значение для всех полукомплектов
+            for protection_half_set, component, factors in manipulation_factor_components:
+                # Обновляем factors с информацией о рассчитанном и округленном значении
+                updated_factors = factors.copy()
+                updated_factors["Рассчитанное значение"] = max_manipulation_factor
+                updated_factors["Округленное значение"] = final_manipulation_factor
+                
+                result = round(final_manipulation_factor, 0)
+                self.save_result_to_db(
+                    protection_half_set=protection_half_set,
+                    component=component,
+                    calculation_factors=updated_factors,
+                    result_value=result,
+                )
+                total_saved += 1
+                print(f"[DEBUG] Сохранен результат K МАН для {component.setting_designation}: {result} (одинаковое для всех полукомплектов)")
+        
+        # Очищаем текущий полукомплект после завершения
+        if hasattr(self, 'current_protection_half_set'):
+            delattr(self, 'current_protection_half_set')
+        
+        print(f"[DEBUG] Всего сохранено результатов: {total_saved}")
