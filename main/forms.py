@@ -50,7 +50,12 @@ class ADManualPasswordAuthenticationForm(AuthenticationForm):
             "Пользователь не зарегистрирован в системе. "
             "Обратитесь к администратору для создания учетной записи."
         ),
-        "invalid_login": "Неверный пароль или проблемы с аутентификацией. Проверьте пароль и попробуйте снова.",
+        "invalid_login": (
+            "Неверный пароль. Пожалуйста, проверьте правильность введенного пароля и попробуйте снова."
+        ),
+        "inactive": (
+            "Учетная запись заблокирована. Обратитесь к администратору для разблокировки."
+        ),
     }
 
     def clean_username(self):
@@ -65,40 +70,46 @@ class ADManualPasswordAuthenticationForm(AuthenticationForm):
         return raw_username
 
     def clean(self):
-        # Сначала базовая валидация полей (required и т.д.)
-        # НО: не вызываем super().clean() сразу, так как он требует пароль
-        # Сначала проверим username
+        """
+        Логика валидации по шагам:
+        - Шаг 2: Проверка существования пользователя (всегда выполняется)
+        - Шаг 4: Валидация пароля (только если пароль введен)
+        """
         username = self.cleaned_data.get("username")
-        password = self.cleaned_data.get("password", "")
+        password = self.cleaned_data.get("password", "").strip()
         
-        raw_username = self.data.get("username", "")
+        raw_username = self.data.get("username", "").strip()
         
         if not raw_username:
-            return self.cleaned_data
+            raise forms.ValidationError("Логин обязателен для заполнения.")
 
-        # Сохраняем оригинальное значение для отображения
+        # Сохраняем оригинальное значение для отображения (с доменом)
         self.original_username = raw_username
         
         # Нормализуем логин для проверки в БД
         normalized_username = normalize_ad_login(raw_username)
         
+        if not normalized_username:
+            raise forms.ValidationError("Некорректный формат логина.")
+        
         # Убеждаемся, что username нормализован в cleaned_data
-        if "username" not in self.cleaned_data:
-            self.cleaned_data["username"] = normalized_username
+        self.cleaned_data["username"] = normalized_username
         
         # Шаг 2: Проверка существования пользователя в Django
         # (выполняется всегда, независимо от наличия пароля)
         try:
             user = User.objects.get(username=normalized_username)
             if not user.is_active:
+                # Учетная запись заблокирована
                 raise forms.ValidationError(
                     "Учетная запись заблокирована. Обратитесь к администратору.",
                     code="inactive",
                 )
-            # Пользователь найден - сохраняем в форме для дальнейшего использования
+            # Пользователь найден и активен - сохраняем в форме
             self.found_user = user
         except User.DoesNotExist:
-            # Шаг 2, Сценарий Б: Пользователь НЕ НАЙДЕН
+            # Шаг 2, Сценарий Б: Пользователь НЕ НАЙДЕН в Django
+            # Очищаем форму и показываем ошибку
             raise forms.ValidationError(
                 self.error_messages["user_not_registered"],
                 code="user_not_registered",
@@ -113,6 +124,7 @@ class ADManualPasswordAuthenticationForm(AuthenticationForm):
             
             if self.user_cache is None:
                 # Шаг 4, Сценарий Б: ВАЛИДАЦИЯ НЕУДАЧНА
+                # Пароль неправильный или проблемы с аутентификацией
                 raise forms.ValidationError(
                     self.error_messages["invalid_login"],
                     code="invalid_login",
@@ -120,13 +132,11 @@ class ADManualPasswordAuthenticationForm(AuthenticationForm):
             else:
                 # Шаг 4, Сценарий А: ВАЛИДАЦИЯ УСПЕШНА
                 self.confirm_login_allowed(self.user_cache)
-                # После успешной аутентификации обновляем cleaned_data на нормализованное значение
-                self.cleaned_data["username"] = normalized_username
         else:
-            # Пароль не введен - это Шаг 2, пользователь найден, переходим к Шагу 3
-            # Не вызываем authenticate(), просто возвращаем cleaned_data
+            # Пароль не введен - это Шаг 2 → Шаг 3
+            # Пользователь найден, но пароль еще не введен
+            # Форма считается валидной, но user_cache не устанавливается
             # View обработает это и покажет форму с readonly логином
-            # Форма считается валидной для этого случая (пользователь найден, пароль будет введен позже)
-            pass
+            self.user_cache = None
 
         return self.cleaned_data

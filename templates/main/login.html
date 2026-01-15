@@ -15,72 +15,107 @@
                     <h2>PF.ДФЗ</h2>
                 </div>
                 <div class="card-body">
-                    {% if user.is_authenticated %}
-                    {# Пользователь уже авторизован - показываем кнопку "Продолжить" #}
-                    <div class="alert alert-success mb-3" role="alert">
-                        <strong>Вы уже авторизованы как:</strong> <strong>{{ user.username }}</strong>
+                    {% if messages %}
+                    <div class="messages mb-3">
+                        {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show d-flex align-items-center" 
+                             role="alert" 
+                             id="alert-{{ forloop.counter }}"
+                             style="padding: 0.75rem 1rem; margin-bottom: 0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-info-circle me-2 flex-shrink-0" viewBox="0 0 16 16" style="margin-top: -2px;">
+                                <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                                <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                            </svg>
+                            <span class="flex-grow-1">{{ message }}</span>
+                            <button type="button" 
+                                    class="btn-close flex-shrink-0" 
+                                    data-bs-dismiss="alert" 
+                                    aria-label="Закрыть" 
+                                    onclick="this.closest('.alert').remove()"
+                                    style="padding: 0.5rem;"></button>
+                        </div>
+                        {% endfor %}
                     </div>
-                    <a href="/calculation/" class="btn btn-primary w-100">Продолжить</a>
-                    {% else %}
-                    {# Форма входа #}
+                    {% endif %}
                     <form method="post">
                         {% csrf_token %}
                         <div class="mb-3">
-                            <label for="{{ form.username.id_for_label }}" class="form-label">{{ form.username.label }}</label>
+                            {{ form.username.label }}
                             {% if lock_username %}
-                                {# Шаг 3: Поле логина только для чтения, если пользователь найден в Django #}
-                                {# Отображаем полное значение с доменом (GLEB-V6D1NN2\Gleb) #}
                                 <input type="text" 
                                        name="username" 
-                                       value="{{ auto_detected_user|default:form.username.value|default:'' }}" 
-                                       class="form-control" 
-                                       id="{{ form.username.id_for_label }}"
-                                       readonly
+                                       value="{{ auto_detected_user|default:form.username.value }}" 
+                                       class="form-control {% if form.username.errors %}is-invalid{% endif %}" 
+                                       readonly 
                                        style="background-color: #e9ecef;">
                             {% else %}
-                                {# Поле логина редактируемое - отображаем полное значение с доменом, если есть #}
-                                {# Шаг 2: Если пользователь не найден, поле редактируемое #}
-                                {% if auto_detected_user %}
-                                    <input type="text" 
-                                           name="username" 
-                                           value="{{ auto_detected_user|default:form.username.value|default:'' }}" 
-                                           class="form-control" 
-                                           id="{{ form.username.id_for_label }}">
-                                {% else %}
-                                    {{ form.username }}
-                                {% endif %}
+                                {{ form.username }}
                             {% endif %}
                             {% if form.username.errors %}
-                                <div class="text-danger small">
+                                <div class="invalid-feedback d-block">
                                     {% for error in form.username.errors %}
-                                        <div>{{ error }}</div>
+                                        <small class="text-danger">{{ error }}</small>
                                     {% endfor %}
                                 </div>
                             {% endif %}
                         </div>
                         <div class="mb-3">
-                            <label for="{{ form.password.id_for_label }}" class="form-label">{{ form.password.label }}</label>
+                            {{ form.password.label }}
                             {{ form.password }}
                             {% if form.password.errors %}
-                                <div class="text-danger small">{{ form.password.errors }}</div>
+                                <div class="invalid-feedback d-block">
+                                    {% for error in form.password.errors %}
+                                        <small class="text-danger">{{ error }}</small>
+                                    {% endfor %}
+                                </div>
                             {% endif %}
                         </div>
-                        {# Показываем ошибки формы (включая "пользователь не зарегистрирован" и "неверный пароль") #}
                         {% if form.non_field_errors %}
-                        <div class="alert alert-danger mb-3" role="alert">
+                        <div class="mb-3">
                             {% for error in form.non_field_errors %}
-                                <div>{{ error }}</div>
+                            <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" 
+                                 role="alert" 
+                                 id="error-alert-{{ forloop.counter }}"
+                                 style="padding: 0.75rem 1rem; margin-bottom: 0;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-exclamation-triangle me-2 flex-shrink-0" viewBox="0 0 16 16" style="margin-top: -2px;">
+                                    <path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.146.146 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.163.163 0 0 1-.054.06.116.116 0 0 1-.066.017H1.146a.115.115 0 0 1-.066-.017.163.163 0 0 1-.054-.06.176.176 0 0 1 .002-.183L7.884 2.073a.147.147 0 0 1 .054-.057zm1.044-.45a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566z"/>
+                                    <path d="M7.002 12a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 5.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995z"/>
+                                </svg>
+                                <span class="flex-grow-1">{{ error }}</span>
+                                <button type="button" 
+                                        class="btn-close flex-shrink-0" 
+                                        data-bs-dismiss="alert" 
+                                        aria-label="Закрыть" 
+                                        onclick="this.closest('.alert').remove()"
+                                        style="padding: 0.5rem;"></button>
+                            </div>
                             {% endfor %}
                         </div>
                         {% endif %}
                         <button type="submit" class="btn btn-primary w-100">Войти</button>
                     </form>
-                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
 </div>
-<script src="{% static 'main/js/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'main/js/bootstrap.js' %}"></script>
+<script>
+    // Обеспечиваем закрытие alert при клике на кнопку закрытия
+    document.addEventListener('DOMContentLoaded', function() {
+        const closeButtons = document.querySelectorAll('.btn-close');
+        closeButtons.forEach(function(button) {
+            button.addEventListener('click', function() {
+                const alert = this.closest('.alert');
+                if (alert) {
+                    alert.classList.remove('show');
+                    setTimeout(function() {
+                        alert.remove();
+                    }, 150);
+                }
+            });
+        });
+    });
+</script>
 </body>
 </html>

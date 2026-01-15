@@ -1,6 +1,7 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.views import LoginView
 from django.contrib.auth import get_user_model
+from django.contrib import messages
 from django.conf import settings
 
 from .forms import ADManualPasswordAuthenticationForm, normalize_ad_login
@@ -46,43 +47,60 @@ class AutoLoginView(LoginView):
 
     def post(self, request, *args, **kwargs):
         """
-        Обработка POST запроса с логикой двух этапов:
-        - Шаг 2: Проверка существования пользователя (если пароль пустой)
+        Обработка POST запроса согласно логике шагов:
+        - Шаг 2: Проверка существования пользователя в Django
+        - Шаг 3: Показ формы с readonly логином (если пользователь найден, но пароль не введен)
         - Шаг 4: Валидация пароля (если пароль введен)
         """
         form = self.get_form()
-        password = request.POST.get("password", "")
         
-        if form.is_valid():
-            # Форма валидна
-            if password and hasattr(form, 'user_cache') and form.user_cache:
-                # Шаг 4, Сценарий А: Пароль введен и аутентификация успешна
-                return self.form_valid(form)
-            elif not password:
-                # Шаг 2 → Шаг 3: Пользователь найден, но пароль не введен
-                # Сохраняем в сессии для показа readonly поля
-                raw_username = request.POST.get("username", "")
-                if raw_username:
-                    request.session["user_found_for_login"] = raw_username
-                # Показываем форму снова с readonly логином
-                return self.form_invalid(form)
-            else:
-                # Неожиданный случай
-                return self.form_invalid(form)
+        if not form.is_valid():
+            # Форма невалидна - есть ошибки валидации
+            raw_username = request.POST.get("username", "").strip()
+            
+            # Проверяем тип ошибки
+            has_user_not_registered = False
+            has_invalid_login = False
+            
+            if form.errors:
+                for error_list in form.errors.values():
+                    for error in error_list:
+                        if hasattr(error, "code"):
+                            if error.code == "user_not_registered":
+                                has_user_not_registered = True
+                            elif error.code == "invalid_login":
+                                has_invalid_login = True
+            
+            # Если ошибка "пользователь не зарегистрирован" - очищаем сессию
+            if has_user_not_registered:
+                if "user_found_for_login" in request.session:
+                    del request.session["user_found_for_login"]
+            # Если ошибка "неверный пароль" - сохраняем логин для readonly
+            elif has_invalid_login and raw_username:
+                request.session["user_found_for_login"] = raw_username
+            
+            return self.form_invalid(form)
+        
+        # Форма валидна
+        # Проверяем, есть ли user_cache (успешная аутентификация)
+        if hasattr(form, 'user_cache') and form.user_cache:
+            # Шаг 4, Сценарий А: ВАЛИДАЦИЯ УСПЕШНА
+            # Пароль правильный, пользователь авторизуется
+            if "user_found_for_login" in request.session:
+                del request.session["user_found_for_login"]
+            return self.form_valid(form)
         else:
-            # Форма невалидна - проверяем, на каком этапе мы находимся
-            raw_username = request.POST.get("username", "")
-            
-            if raw_username and password:
-                # Шаг 4: Пароль введен, но форма невалидна
-                # Это может быть ошибка "неверный пароль"
-                # Сохраняем в сессии, что пользователь найден (для показа readonly поля)
-                normalized_username = normalize_ad_login(raw_username)
-                User = get_user_model()
-                if User.objects.filter(username=normalized_username).exists():
-                    # Пользователь найден, но пароль неверный - показываем readonly поле
-                    request.session["user_found_for_login"] = raw_username
-            
+            # Шаг 2 → Шаг 3: Пользователь найден, но пароль не введен
+            # Сохраняем в сессии для показа readonly поля
+            raw_username = request.POST.get("username", "").strip()
+            if raw_username:
+                request.session["user_found_for_login"] = raw_username
+            # Добавляем информационное сообщение
+            messages.info(
+                request,
+                "Пользователь найден. Пожалуйста, введите пароль для входа в систему."
+            )
+            # Показываем форму снова с readonly логином
             return self.form_invalid(form)
 
     def get_context_data(self, **kwargs):
@@ -127,32 +145,28 @@ class AutoLoginView(LoginView):
         # Проверяем, есть ли в сессии информация о найденном пользователе
         user_found_in_session = self.request.session.get("user_found_for_login")
         
-        if login_to_check:
+        # Проверяем, нет ли ошибки "пользователь не зарегистрирован"
+        has_user_not_registered_error = False
+        if form and form.errors:
+            for error_list in form.errors.values():
+                for error in error_list:
+                    if hasattr(error, "code") and error.code == "user_not_registered":
+                        has_user_not_registered_error = True
+                        break
+                if has_user_not_registered_error:
+                    break
+        
+        if login_to_check and not has_user_not_registered_error:
             canonical = normalize_ad_login(login_to_check)
             user_exists = bool(
                 canonical and User.objects.filter(username=canonical).exists()
             )
             
             # Блокируем поле логина если:
-            # 1. Пользователь найден в БД И нет ошибки "пользователь не зарегистрирован"
-            # 2. ИЛИ пользователь найден и сохранен в сессии (после первой проверки)
+            # 1. Пользователь найден в БД (проверка через сессию или прямое обращение)
+            # 2. И нет ошибки "пользователь не зарегистрирован"
             if user_exists or user_found_in_session:
-                # Проверяем, нет ли ошибки "пользователь не зарегистрирован"
-                has_user_not_registered_error = False
-                if form and form.errors:
-                    for error_list in form.errors.values():
-                        for error in error_list:
-                            if (
-                                hasattr(error, "code")
-                                and error.code == "user_not_registered"
-                            ):
-                                has_user_not_registered_error = True
-                                break
-                        if has_user_not_registered_error:
-                            break
-
-                if not has_user_not_registered_error:
-                    lock_username = True
+                lock_username = True
 
         context["lock_username"] = lock_username
         context["user_exists"] = user_exists
