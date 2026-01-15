@@ -21,28 +21,16 @@ from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
 
-from main.forms import CustomAuthenticationForm
-from main.views import page_not_found
+from main.views import page_not_found, AutoLoginView
 
 
 urlpatterns = [
-    path(
-        "",
-        auth_views.LoginView.as_view(
-            template_name="main/login.html",
-            authentication_form=CustomAuthenticationForm
-        ),
-        name="login"
-    ),
-    path(
-        'logout/',
-        auth_views.LogoutView.as_view(),
-        name='logout'
-    ),
+    path("", AutoLoginView.as_view(), name="login"),
+    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
     path("main/", include("main.urls")),
     path("calculation/", include("calculation.urls")),
-    path('core/', include('core.urls'))
+    path("core/", include("core.urls")),
 ]
 
 # Добавляем обработку медиа-файлов в режиме разработки

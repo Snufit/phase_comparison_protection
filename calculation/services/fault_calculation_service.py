@@ -1,41 +1,45 @@
 from typing import List, Dict, Union, Set
 
 from calculation.models import FaultCalculation, CalculationMeta
-from calculation.services.powerfactory_locator import get_pf_line, get_pf_substation, get_powerfactory_object_by_full_name
-from calculation.services.sensitivity_fault_map import SensitivityFaultMap, POWERFACTORY_FAULT_TYPES, FAULT_LOCATION_OPPOSITE_END, FAULT_LOCATION_BRANCHES
+from calculation.services.powerfactory_locator import (
+    get_pf_line,
+    get_pf_substation,
+    get_powerfactory_object_by_full_name,
+)
+from calculation.services.sensitivity_fault_map import (
+    SensitivityFaultMap,
+    POWERFACTORY_FAULT_TYPES,
+    FAULT_LOCATION_OPPOSITE_END,
+    FAULT_LOCATION_BRANCHES,
+)
 from core.models import ProtectionHalfSet
 
 
 class FaultCalculationService:
-
     # Постоянная конфигурация для моделирования КЗ
     FAULT_CONFIG = {
-        'iopt_mde': 1,
-        'iopt_cnf': 0,
-        'Rf': 0,
-        'Xf': 0,
-        'iopt_allbus': 0,
+        "iopt_mde": 1,
+        "iopt_cnf": 0,
+        "Rf": 0,
+        "Xf": 0,
+        "iopt_allbus": 0,
     }
 
     # Виды КЗ в PowerFactory (полный список)
-    FAULTS = {
-        '3psc': 'К(3)',
-        '2psc': 'К(2)',
-        '2pgf': 'К(1,1)',
-        'spgf': 'К(1)'
-    }
+    FAULTS = {"3psc": "К(3)", "2psc": "К(2)", "2pgf": "К(1,1)", "spgf": "К(1)"}
+
 
     def perform_fault_calculation(
         self,
         app,
         protection_half_set: ProtectionHalfSet,
         submodes: List[Dict[str, Union[List[str], str]]],
-        calculation_meta: CalculationMeta
+        calculation_meta: CalculationMeta,
     ) -> None:
         """
         Выполняет расчет КЗ на противоположном конце ЛЭП.
         Использует карту КЗ для определения необходимых типов КЗ.
-        
+
         Args:
             app: Объект приложения PowerFactory
             protection_half_set: Полукомплект защиты
@@ -52,33 +56,49 @@ class FaultCalculationService:
 
         # Определяем узел КЗ (противоположный конец)
         fault_terminal = self._get_fault_terminal(pf_line, pf_substation)
-        fault_terminal_name = fault_terminal.GetAttribute('loc_name')
+        fault_terminal_name = fault_terminal.GetAttribute("loc_name")
 
         # Получаем необходимые типы КЗ для противоположного конца из карты КЗ
-        required_fault_types = self._get_required_fault_types_for_location(FAULT_LOCATION_OPPOSITE_END)
-        
-        print(f"[DEBUG] Моделирование КЗ на противоположном конце для полукомплекта {protection_half_set.id}")
+        required_fault_types = self._get_required_fault_types_for_location(
+            FAULT_LOCATION_OPPOSITE_END
+        )
+
+        # Получаем информацию о том, какие органы требуют эти типы КЗ
+        organs_info = self._get_organs_info_for_location(
+            FAULT_LOCATION_OPPOSITE_END)
+
+        print(
+            f"[DEBUG] ========== Моделирование КЗ на противоположном конце =========="
+        )
+        print(
+            f"[DEBUG] Полукомплект: {protection_half_set} (ID: {protection_half_set.id})"
+        )
+        print(f"[DEBUG] ЛЭП: {line_pf_name}")
+        print(f"[DEBUG] Место КЗ: {fault_terminal_name}")
         print(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
+        if organs_info:
+            print(f"[DEBUG] Органы, требующие эти типы КЗ:")
+            for organ_name, fault_types in organs_info.items():
+                print(f"[DEBUG]   - {organ_name}: {fault_types}")
+        print(f"[DEBUG] Количество подрежимов: {len(submodes)}")
 
         # Перебираем подрежимы
-        for submode in submodes:
-
+        total_faults = 0
+        for idx, submode in enumerate(submodes, 1):
             # Вытаскиваем имя подрежима
-            submode_name = submode.get('submode_name')
+            submode_name = submode.get("submode_name")
 
             # Список объектов
             submode_elements = []
 
             # Вытаскиваем список полных имен
-            submode_elements_full_names = submode.get('submode_elements')
+            submode_elements_full_names = submode.get("submode_elements")
 
             # Итерируемся по списку полных имен
             for full_name in submode_elements_full_names:
-
                 # Восстанавливаем объект по полному имени
                 submode_element = get_powerfactory_object_by_full_name(
-                    app, full_name
-                )
+                    app, full_name)
 
                 # Записываем в список объектов
                 submode_elements.append(submode_element)
@@ -91,9 +111,18 @@ class FaultCalculationService:
                 fault_type = self.FAULTS.get(pf_fault_type)
                 if not fault_type:
                     continue
-                    
+
+                print(f"[DEBUG] --- Подрежим: {submode_name} ---")
+                print(
+                    f"[DEBUG] Моделирование КЗ типа: {fault_type} ({pf_fault_type})")
+
                 fault_values = self._execute_fault(
-                    app, pf_line, fault_terminal, pf_fault_type
+                    app,
+                    pf_line,
+                    fault_terminal,
+                    pf_fault_type,
+                    submode_name,
+                    fault_terminal_name,
                 )
 
                 # Записываем результаты в БД
@@ -103,11 +132,24 @@ class FaultCalculationService:
                     fault_type,
                     fault_terminal_name,
                     submode_name,
-                    fault_values
+                    fault_values,
                 )
+                total_faults += 1
 
             # Включаем объекты подрежима обратно
             self._disconnect_submode_elements(submode_elements, False)
+
+            faults_in_submode = len(required_fault_types)
+            print(
+                f"[DEBUG] Подрежим '{submode_name}' ({idx}/{len(submodes)}): выполнено {faults_in_submode} расчетов КЗ"
+            )
+
+        print(
+            f"[DEBUG] ========== Завершено моделирование КЗ на противоположном конце =========="
+        )
+        print(
+            f"[DEBUG] Всего выполнено расчетов КЗ: {total_faults} (подрежимов: {len(submodes)}, типов КЗ: {len(required_fault_types)})"
+        )
 
         # Удаляем объекты, содержащие ссылки на COM
         del pf_line, pf_substation, fault_terminal, submode_elements
@@ -117,12 +159,12 @@ class FaultCalculationService:
         app,
         protection_half_set: ProtectionHalfSet,
         submodes: List[Dict[str, Union[List[str], str]]],
-        calculation_meta: CalculationMeta
+        calculation_meta: CalculationMeta,
     ) -> None:
         """
         Выполняет расчет КЗ на подстанциях ответвлений.
         Использует карту КЗ для определения необходимых типов КЗ.
-        
+
         Args:
             app: Объект приложения PowerFactory
             protection_half_set: Полукомплект защиты
@@ -132,100 +174,192 @@ class FaultCalculationService:
         # Получаем линию
         line = protection_half_set.line
         line_pf_name = line.pf_name
-        
+
         # Находим ЛЭП в модели PowerFactory
         pf_line = get_pf_line(app, line_pf_name)
-        
+
         # Получаем все активные ответвления для линии
         branches = line.branches.filter(is_active=True)
-        
+
         if not branches.exists():
             # Если ответвлений нет, ничего не делаем
             return
-        
+
         # Получаем необходимые типы КЗ для ответвлений из карты КЗ
-        required_fault_types = self._get_required_fault_types_for_location(FAULT_LOCATION_BRANCHES)
-        
-        print(f"[DEBUG] Моделирование КЗ на ответвлениях для полукомплекта {protection_half_set.id}")
+        required_fault_types = self._get_required_fault_types_for_location(
+            FAULT_LOCATION_BRANCHES
+        )
+
+        # Получаем информацию о том, какие органы требуют эти типы КЗ
+        organs_info = self._get_organs_info_for_location(
+            FAULT_LOCATION_BRANCHES)
+
+        print(f"[DEBUG] ========== Моделирование КЗ на ответвлениях ==========")
+        print(
+            f"[DEBUG] Полукомплект: {protection_half_set} (ID: {protection_half_set.id})"
+        )
+        print(f"[DEBUG] ЛЭП: {line_pf_name}")
+        print(f"[DEBUG] Количество активных ответвлений: {branches.count()}")
         print(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
-        
+        if organs_info:
+            print(f"[DEBUG] Органы, требующие эти типы КЗ:")
+            for organ_name, fault_types in organs_info.items():
+                print(f"[DEBUG]   - {organ_name}: {fault_types}")
+        print(f"[DEBUG] Количество подрежимов: {len(submodes)}")
+
         # Перебираем подрежимы
-        for submode in submodes:
+        total_faults = 0
+        for idx, submode in enumerate(submodes, 1):
             # Вытаскиваем имя подрежима
-            submode_name = submode.get('submode_name')
-            
+            submode_name = submode.get("submode_name")
+
             # Список объектов
             submode_elements = []
-            
+
             # Вытаскиваем список полных имен
-            submode_elements_full_names = submode.get('submode_elements')
-            
+            submode_elements_full_names = submode.get("submode_elements")
+
             # Итерируемся по списку полных имен
             for full_name in submode_elements_full_names:
                 # Восстанавливаем объект по полному имени
                 submode_element = get_powerfactory_object_by_full_name(
-                    app, full_name
-                )
+                    app, full_name)
                 # Записываем в список объектов
                 submode_elements.append(submode_element)
-            
+
             # Отключаем объекты подрежима
             self._disconnect_submode_elements(submode_elements, True)
-            
+
             # Для каждого ответвления выполняем расчет КЗ
             for branch in branches:
                 # Получаем имя подстанции ответвления
                 branch_substation_name = branch.pf_name_substation
-                
+
+                print(
+                    f"[DEBUG] Обработка ответвления: {branch_substation_name}")
+
                 if not branch_substation_name:
                     # Если имя подстанции не указано, пропускаем
+                    print(
+                        f"[DEBUG] Пропущено ответвление: имя подстанции не указано")
                     continue
-                
+
                 try:
                     # Находим подстанцию в PowerFactory
                     pf_branch_substation = get_pf_substation(app, branch_substation_name)
-                    
+
+                    if not pf_branch_substation:
+                        print(
+                            f"[ERROR] Не найдена подстанция '{branch_substation_name}' в PowerFactory"
+                        )
+                        continue
+
+                    print(
+                        f"[DEBUG] Найдена подстанция '{branch_substation_name}' в PowerFactory"
+                    )
+
                     # Находим терминал на подстанции ответвления, подключенный к линии
-                    branch_terminal = self._get_branch_terminal(pf_line, pf_branch_substation)
-                    
+                    branch_terminal = self._get_branch_terminal(
+                        pf_line, pf_branch_substation
+                    )
+
                     if not branch_terminal:
                         # Если терминал не найден, пропускаем это ответвление
+                        print(
+                            f"[WARNING] Терминал на подстанции '{branch_substation_name}' не найден, пропускаем ответвление"
+                        )
                         continue
-                    
-                    branch_terminal_name = branch_terminal.GetAttribute('loc_name')
-                    
+
+                    branch_terminal_name = branch_terminal.GetAttribute(
+                        "loc_name")
+                    print(
+                        f"[DEBUG] Найден терминал '{branch_terminal_name}' на подстанции '{branch_substation_name}'"
+                    )
+
                     # Используем специальный формат fault_location для идентификации
                     fault_location = f"Ответвление: {branch_substation_name}"
-                    
+
                     # Выполняем расчет КЗ для всех необходимых типов
+                    print(
+                        f"[DEBUG] Начинаем расчет КЗ для ответвления '{branch_substation_name}': {len(required_fault_types)} типов"
+                    )
                     for pf_fault_type in required_fault_types:
                         fault_type = self.FAULTS.get(pf_fault_type)
                         if not fault_type:
+                            print(
+                                f"[DEBUG] Пропущен тип КЗ {pf_fault_type}: не найден в словаре FAULTS"
+                            )
                             continue
-                        
-                        fault_values = self._execute_fault(
-                            app, pf_line, branch_terminal, pf_fault_type
+
+                        print(
+                            f"[DEBUG] --- Подрежим: {submode_name}, Ответвление: {branch_substation_name} ---"
                         )
-                        
-                        # Записываем результаты в БД
-                        self._save_results_to_db(
-                            calculation_meta,
-                            protection_half_set,
-                            fault_type,
-                            fault_location,
-                            submode_name,
-                            fault_values
+                        print(
+                            f"[DEBUG] Моделирование КЗ типа: {fault_type} ({pf_fault_type})"
                         )
-                    
+
+                        try:
+                            fault_values = self._execute_fault(
+                                app,
+                                pf_line,
+                                branch_terminal,
+                                pf_fault_type,
+                                submode_name,
+                                fault_location,
+                            )
+
+                            # Записываем результаты в БД
+                            self._save_results_to_db(
+                                calculation_meta,
+                                protection_half_set,
+                                fault_type,
+                                fault_location,
+                                submode_name,
+                                fault_values,
+                            )
+                            total_faults += 1
+                            print(
+                                f"[DEBUG] ✓ Успешно выполнено и сохранено КЗ {fault_type} на ответвлении {branch_substation_name}"
+                            )
+                        except Exception as e:
+                            import traceback
+
+                            print(
+                                f"[ERROR] Ошибка при выполнении КЗ {fault_type} на ответвлении {branch_substation_name}: {e}"
+                            )
+                            print(
+                                f"[ERROR] Traceback: {traceback.format_exc()}")
+                            # Продолжаем для следующего типа КЗ
+                            continue
+
                 except Exception as e:
                     # Если не удалось выполнить расчет для этого ответвления, пропускаем
                     # Логируем ошибку, но продолжаем для других ответвлений
-                    print(f"Ошибка при расчете КЗ на ответвлении {branch_substation_name}: {e}")
+                    import traceback
+
+                    print(
+                        f"[ERROR] Ошибка при расчете КЗ на ответвлении {branch_substation_name}: {e}"
+                    )
+                    print(f"[ERROR] Traceback: {traceback.format_exc()}")
                     continue
-            
+
             # Включаем объекты подрежима обратно
             self._disconnect_submode_elements(submode_elements, False)
-        
+
+            faults_in_submode = len(required_fault_types) * branches.count()
+            print(
+                f"[DEBUG] Подрежим '{submode_name}' ({idx}/{len(submodes)}): выполнено {faults_in_submode} расчетов КЗ "
+                f"({len(required_fault_types)} типов × {branches.count()} ответвлений)"
+            )
+
+        print(
+            f"[DEBUG] ========== Завершено моделирование КЗ на ответвлениях =========="
+        )
+        print(
+            f"[DEBUG] Всего выполнено расчетов КЗ: {total_faults} "
+            f"(подрежимов: {len(submodes)}, типов КЗ: {len(required_fault_types)}, ответвлений: {branches.count()})"
+        )
+
         # Удаляем объекты, содержащие ссылки на COM
         del pf_line, submode_elements
 
@@ -236,11 +370,11 @@ class FaultCalculationService:
         fault_type: str,
         fault_location,
         submode_name,
-        fault_values
+        fault_values,
     ) -> None:
         """
         Сохраняет результаты расчета КЗ в БД.
-        
+
         Args:
             calculation_meta: Мета-данные расчета
             protection_half_set: Полукомплект защиты
@@ -250,28 +384,30 @@ class FaultCalculationService:
             fault_values: Словарь с результатами расчета
         """
         # Если fault_location - объект терминала, получаем его имя
-        if hasattr(fault_location, 'GetAttribute'):
-            fault_location_str = fault_location.GetAttribute('loc_name')
+        if hasattr(fault_location, "GetAttribute"):
+            fault_location_str = fault_location.GetAttribute("loc_name")
         else:
             # Если это уже строка, используем как есть
             fault_location_str = str(fault_location)
-        
+
         FaultCalculation.objects.create(
             calculation_meta=calculation_meta,
             protection_half_set=protection_half_set,
             fault_type=fault_type,
             fault_location=fault_location_str,
             network_topology=submode_name,
-            fault_values=fault_values
+            fault_values=fault_values,
+        )
+
+        print(
+            f"[DEBUG] ✓ Сохранено в БД: {fault_type} на {fault_location_str}, подрежим '{submode_name}'"
         )
 
     @staticmethod
     def _get_fault_terminal(pf_line, pf_substation):
-
         # Определяем узлы подключения защищаемой ЛЭП
         line_terminals = pf_line.GetConnectedElements()
         for terminal in line_terminals:
-
             # Определяем подстанцию, которой принадлежит узел
             substation = terminal.GetParent()
 
@@ -280,42 +416,87 @@ class FaultCalculationService:
                 return terminal
 
     @staticmethod
+    @staticmethod
     def _get_branch_terminal(pf_line, pf_branch_substation):
         """
         Находит терминал на подстанции ответвления, подключенный к линии.
-        
+
         Args:
             pf_line: Объект линии в PowerFactory
             pf_branch_substation: Объект подстанции ответвления в PowerFactory
-            
+
         Returns:
             Терминал на подстанции ответвления или None, если не найден
         """
+        if not pf_branch_substation:
+            return None
+
+        # Получаем имя подстанции ответвления для сравнения
+        branch_substation_name = pf_branch_substation.GetAttribute("loc_name")
+        if not branch_substation_name:
+            print(f"[DEBUG] У подстанции ответвления нет имени (loc_name)")
+            return None
+
+        print(
+            f"[DEBUG] Поиск терминала на подстанции '{branch_substation_name}' для линии '{pf_line.GetAttribute('loc_name')}'"
+        )
+
         # Определяем узлы подключения защищаемой ЛЭП
         line_terminals = pf_line.GetConnectedElements()
+        if not line_terminals:
+            print(f"[DEBUG] У линии нет подключенных терминалов")
+            return None
+
+        print(f"[DEBUG] Найдено терминалов на линии: {len(line_terminals)}")
+
         for terminal in line_terminals:
-            # Определяем подстанцию, которой принадлежит узел
-            substation = terminal.GetParent()
-            
-            # Возвращаем терминал, если он принадлежит подстанции ответвления
-            if substation == pf_branch_substation:
-                return terminal
-        
+            try:
+                # Определяем подстанцию, которой принадлежит узел
+                substation = terminal.GetParent()
+
+                if not substation:
+                    continue
+
+                # Сравниваем по имени подстанции (более надежно, чем сравнение объектов)
+                substation_name = substation.GetAttribute("loc_name")
+
+                print(
+                    f"[DEBUG] Проверка терминала '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
+                )
+
+                # Возвращаем терминал, если он принадлежит подстанции ответвления
+                if substation_name == branch_substation_name:
+                    print(
+                        f"[DEBUG] ✓ Найден терминал '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
+                    )
+                    return terminal
+            except Exception as e:
+                print(f"[DEBUG] Ошибка при проверке терминала: {e}")
+                continue
+
+        print(
+            f"[DEBUG] ✗ Терминал на подстанции '{branch_substation_name}' не найден среди {len(line_terminals)} терминалов линии"
+        )
         return None
 
     def _execute_fault(
-        self, app, pf_line, fault_terminal, fault_type: str
+        self,
+        app,
+        pf_line,
+        fault_terminal,
+        fault_type: str,
+        submode_name: str = None,
+        fault_location: str = None,
     ) -> Dict[str, float]:
-
         # Конфигурация КЗ
-        fault = app.GetFromStudyCase('ComShc')
-        fault.SetAttribute('iopt_mde', self.FAULT_CONFIG['iopt_mde'])
-        fault.SetAttribute('iopt_cnf', self.FAULT_CONFIG['iopt_cnf'])
-        fault.SetAttribute('iopt_shc', fault_type)
-        fault.SetAttribute('Rf', self.FAULT_CONFIG['Rf'])
-        fault.SetAttribute('Xf', self.FAULT_CONFIG['Xf'])
-        fault.SetAttribute('iopt_allbus', self.FAULT_CONFIG['iopt_allbus'])
-        fault.SetAttribute('shcobj', fault_terminal)
+        fault = app.GetFromStudyCase("ComShc")
+        fault.SetAttribute("iopt_mde", self.FAULT_CONFIG["iopt_mde"])
+        fault.SetAttribute("iopt_cnf", self.FAULT_CONFIG["iopt_cnf"])
+        fault.SetAttribute("iopt_shc", fault_type)
+        fault.SetAttribute("Rf", self.FAULT_CONFIG["Rf"])
+        fault.SetAttribute("Xf", self.FAULT_CONFIG["Xf"])
+        fault.SetAttribute("iopt_allbus", self.FAULT_CONFIG["iopt_allbus"])
+        fault.SetAttribute("shcobj", fault_terminal)
 
         # Моделирование КЗ
         fault.Execute()
@@ -328,28 +509,51 @@ class FaultCalculationService:
         pos_sequence_voltage = 0  # Остаточное напряжение прямой последовательности
         zero_sequence_voltage = 0  # Напряжение нулевой последовательности
 
-        if pf_line.HasAttribute('m:I1:0'):
-            pos_sequence_current = pf_line.GetAttribute('m:I1:0')
-        if pf_line.HasAttribute('m:I2:0'):
-            neg_sequence_current = pf_line.GetAttribute('m:I2:0')
-        if pf_line.HasAttribute('m:I0x3:0'):
-            triple_zero_sequence_current = pf_line.GetAttribute('m:I0x3:0')
-        if pf_line.HasAttribute('n:U2:0'):
-            neg_sequence_voltage = pf_line.GetAttribute('n:U2:0')
-        if pf_line.HasAttribute('n:U1:0'):
-            pos_sequence_voltage = pf_line.GetAttribute('n:U1:0')
+        if pf_line.HasAttribute("m:I1:0"):
+            pos_sequence_current = pf_line.GetAttribute("m:I1:0")
+        if pf_line.HasAttribute("m:I2:0"):
+            neg_sequence_current = pf_line.GetAttribute("m:I2:0")
+        if pf_line.HasAttribute("m:I0x3:0"):
+            triple_zero_sequence_current = pf_line.GetAttribute("m:I0x3:0")
+        if pf_line.HasAttribute("n:U2:0"):
+            neg_sequence_voltage = pf_line.GetAttribute("n:U2:0")
+        if pf_line.HasAttribute("n:U1:0"):
+            pos_sequence_voltage = pf_line.GetAttribute("n:U1:0")
         # Получаем напряжение нулевой последовательности (для расчета 3U0)
-        if pf_line.HasAttribute('n:U0:0'):
-            zero_sequence_voltage = pf_line.GetAttribute('n:U0:0')
+        if pf_line.HasAttribute("n:U0:0"):
+            zero_sequence_voltage = pf_line.GetAttribute("n:U0:0")
 
         results = {
-            'I1': round(pos_sequence_current * 1000, 0),
-            'I2': round(neg_sequence_current * 1000, 0),
-            '3I0': round(triple_zero_sequence_current * 1000, 0),
-            'U2': round(neg_sequence_voltage, 0),
-            'U1': round(pos_sequence_voltage, 0),  # Остаточное напряжение прямой последовательности
-            '3U0': round(3 * zero_sequence_voltage, 0) if zero_sequence_voltage > 0 else 0  # Утроенное напряжение нулевой последовательности (кВ)
+            "I1": round(pos_sequence_current * 1000, 0),
+            "I2": round(neg_sequence_current * 1000, 0),
+            "3I0": round(triple_zero_sequence_current * 1000, 0),
+            "U2": round(neg_sequence_voltage, 0),
+            "U1": round(
+                pos_sequence_voltage, 0
+            ),  # Остаточное напряжение прямой последовательности
+            "3U0": round(3 * zero_sequence_voltage, 0)
+            if zero_sequence_voltage > 0
+            else 0,  # Утроенное напряжение нулевой последовательности (кВ)
         }
+
+        # Логируем полученные значения КЗ
+        fault_type_ru = self.FAULTS.get(fault_type, fault_type)
+        location_str = fault_location if fault_location else "не указано"
+        submode_str = submode_name if submode_name else "не указано"
+
+        print(f"[DEBUG] Результаты КЗ {fault_type_ru}:")
+        print(f"[DEBUG]   Место: {location_str}")
+        print(f"[DEBUG]   Подрежим: {submode_str}")
+        print(
+            f"[DEBUG]   I1 = {results['I1']:.0f} мА ({pos_sequence_current:.3f} А)")
+        print(
+            f"[DEBUG]   I2 = {results['I2']:.0f} мА ({neg_sequence_current:.3f} А)")
+        print(
+            f"[DEBUG]   3I0 = {results['3I0']:.0f} мА ({triple_zero_sequence_current/1000:.3f} А)"
+        )
+        print(f"[DEBUG]   U2 = {results['U2']:.2f} В")
+        print(f"[DEBUG]   U1 = {results['U1']:.2f} кВ")
+        print(f"[DEBUG]   3U0 = {results['3U0']:.2f} кВ")
 
         # Удаляем ссылку на COM
         del fault
@@ -360,37 +564,70 @@ class FaultCalculationService:
     def _get_required_fault_types_for_location(location: str) -> Set[str]:
         """
         Получает необходимые типы КЗ в формате PowerFactory для указанного места.
-        
+
         Args:
             location: Место выполнения КЗ (FAULT_LOCATION_OPPOSITE_END или FAULT_LOCATION_BRANCHES)
-            
+
         Returns:
             Множество типов КЗ в формате PowerFactory (например, {'3psc', 'spgf', '2psc'})
         """
         required_types = set()
-        
+
         # Получаем все органы, для которых нужно проверять чувствительность
         organs_requiring_faults = SensitivityFaultMap.get_all_organs_requiring_faults()
-        
+
         for organ_name in organs_requiring_faults:
             fault_map = SensitivityFaultMap.get_fault_map(organ_name)
             if not fault_map:
                 continue
-            
+
             # Проверяем, нужно ли моделировать КЗ в этом месте для этого органа
             fault_locations = fault_map.get("fault_locations", [])
             if location not in fault_locations:
                 continue
-            
+
             # Получаем типы КЗ для этого органа
             fault_types = fault_map.get("fault_types", [])
-            
+
             # Преобразуем типы КЗ в формат PowerFactory
             for pf_type, ru_type in POWERFACTORY_FAULT_TYPES.items():
                 if ru_type in fault_types:
                     required_types.add(pf_type)
-        
+
         return required_types
+
+    @staticmethod
+    def _get_organs_info_for_location(location: str) -> Dict[str, List[str]]:
+        """
+        Получает информацию о том, какие органы требуют какие типы КЗ для указанного места.
+
+        Args:
+            location: Место выполнения КЗ (FAULT_LOCATION_OPPOSITE_END или FAULT_LOCATION_BRANCHES)
+
+        Returns:
+            Словарь {название_органа: [список_типов_КЗ]}
+        """
+        organs_info = {}
+
+        # Получаем все органы, для которых нужно проверять чувствительность
+        organs_requiring_faults = SensitivityFaultMap.get_all_organs_requiring_faults()
+
+        for organ_name in organs_requiring_faults:
+            fault_map = SensitivityFaultMap.get_fault_map(organ_name)
+            if not fault_map:
+                continue
+
+            # Проверяем, нужно ли моделировать КЗ в этом месте для этого органа
+            fault_locations = fault_map.get("fault_locations", [])
+            if location not in fault_locations:
+                continue
+
+            # Получаем типы КЗ для этого органа
+            fault_types = fault_map.get("fault_types", [])
+            if fault_types:
+                organs_info[organ_name] = fault_types
+
+        return organs_info
 
     @staticmethod
     def _disconnect_submode_elements(submode_elements, disconnect: bool) -> None:

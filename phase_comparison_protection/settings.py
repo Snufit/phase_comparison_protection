@@ -50,6 +50,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "main.middleware.ActiveDirectoryAutoAuthMiddleware",  # Автоматическая аутентификация через Windows AD
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -145,4 +146,12 @@ LOGOUT_REDIRECT_URL = "/"
 
 MESSAGE_TAGS = {
     message_constants.ERROR: "danger",
+}
+
+# Cache configuration (для автоматической аутентификации)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "unique-snowflake",
+    }
 }

@@ -15,21 +15,67 @@
                     <h2>PF.ДФЗ</h2>
                 </div>
                 <div class="card-body">
+                    {% if user.is_authenticated %}
+                    {# Пользователь уже авторизован - показываем кнопку "Продолжить" #}
+                    <div class="alert alert-success mb-3" role="alert">
+                        <strong>Вы уже авторизованы как:</strong> <strong>{{ user.username }}</strong>
+                    </div>
+                    <a href="/calculation/" class="btn btn-primary w-100">Продолжить</a>
+                    {% else %}
+                    {# Форма входа #}
                     <form method="post">
                         {% csrf_token %}
                         <div class="mb-3">
-                            {{ form.username.label }}
-                            {{ form.username }}
+                            <label for="{{ form.username.id_for_label }}" class="form-label">{{ form.username.label }}</label>
+                            {% if lock_username %}
+                                {# Шаг 3: Поле логина только для чтения, если пользователь найден в Django #}
+                                {# Отображаем полное значение с доменом (GLEB-V6D1NN2\Gleb) #}
+                                <input type="text" 
+                                       name="username" 
+                                       value="{{ auto_detected_user|default:form.username.value|default:'' }}" 
+                                       class="form-control" 
+                                       id="{{ form.username.id_for_label }}"
+                                       readonly
+                                       style="background-color: #e9ecef;">
+                            {% else %}
+                                {# Поле логина редактируемое - отображаем полное значение с доменом, если есть #}
+                                {# Шаг 2: Если пользователь не найден, поле редактируемое #}
+                                {% if auto_detected_user %}
+                                    <input type="text" 
+                                           name="username" 
+                                           value="{{ auto_detected_user|default:form.username.value|default:'' }}" 
+                                           class="form-control" 
+                                           id="{{ form.username.id_for_label }}">
+                                {% else %}
+                                    {{ form.username }}
+                                {% endif %}
+                            {% endif %}
+                            {% if form.username.errors %}
+                                <div class="text-danger small">
+                                    {% for error in form.username.errors %}
+                                        <div>{{ error }}</div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
                         <div class="mb-3">
-                            {{ form.password.label }}
+                            <label for="{{ form.password.id_for_label }}" class="form-label">{{ form.password.label }}</label>
                             {{ form.password }}
+                            {% if form.password.errors %}
+                                <div class="text-danger small">{{ form.password.errors }}</div>
+                            {% endif %}
                         </div>
-                        <div class="text-danger mb-3">
-                            {{ form.non_field_errors }}
+                        {# Показываем ошибки формы (включая "пользователь не зарегистрирован" и "неверный пароль") #}
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger mb-3" role="alert">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
                         </div>
+                        {% endif %}
                         <button type="submit" class="btn btn-primary w-100">Войти</button>
                     </form>
+                    {% endif %}
                 </div>
             </div>
         </div>

@@ -7,49 +7,55 @@ class LineSelectionForm(forms.Form):
     """Форма выбора ЛЭП из выпадающего списка с фильтрами."""
 
     line_type_filter = forms.ModelChoiceField(
-        queryset=LineType.objects.exclude(type_code='Неизвестно').order_by('type_code'),
+        queryset=LineType.objects.exclude(type_code="Неизвестно").order_by("type_code"),
         label="Тип ЛЭП",
-        required=False, #false - не обязательное поле
-        empty_label="Все типы", # Первый пункт "Все типы"
-        widget=forms.Select(attrs={"class": "form-select", "id": "id_line_type_filter"}),
+        required=False,  # false - не обязательное поле
+        empty_label="Все типы",  # Первый пункт "Все типы"
+        widget=forms.Select(
+            attrs={"class": "form-select", "id": "id_line_type_filter"}
+        ),
     )
-    
+
     voltage_filter = forms.ChoiceField(
         label="Напряжение, кВ",
-        required=False, # false - не обязательное поле 
-        choices=[('', 'Все напряжения')],
+        required=False,  # false - не обязательное поле
+        choices=[("", "Все напряжения")],
         widget=forms.Select(attrs={"class": "form-select", "id": "id_voltage_filter"}),
     )
 
     line = forms.ModelChoiceField(
-        queryset=Line.objects.all().order_by('dispatch_name'),
+        queryset=Line.objects.all().order_by("dispatch_name"),
         label="Защищаемая ЛЭП",
         empty_label="ЛЭП не выбрана",
         widget=forms.Select(attrs={"class": "form-select", "id": "id_line"}),
     )
-    
+
     def __init__(self, *args, **kwargs):
-        project_name = kwargs.pop('project_name', None)
+        project_name = kwargs.pop("project_name", None)
         super().__init__(*args, **kwargs)
-        
+
         # Фильтруем линии по проекту, если проект указан
         if project_name:
-            queryset = Line.objects.filter(
-                project_name=project_name
-            ).order_by('dispatch_name')
-            self.fields['line'].queryset = queryset
+            queryset = Line.objects.filter(project_name=project_name).order_by(
+                "dispatch_name"
+            )
+            self.fields["line"].queryset = queryset
         else:
             # Если проект не указан, показываем все линии (для обратной совместимости)
-            self.fields['line'].queryset = Line.objects.all().order_by('dispatch_name')
-        
+            self.fields["line"].queryset = Line.objects.all().order_by("dispatch_name")
+
         # Динамически заполняем список напряжений для выбранного проекта
         voltage_queryset = Line.objects.exclude(voltage_level__isnull=True).exclude(
             voltage_level=0
         )
         if project_name:
             voltage_queryset = voltage_queryset.filter(project_name=project_name)
-        voltages = voltage_queryset.values_list('voltage_level', flat=True).distinct().order_by('voltage_level')
-        
+        voltages = (
+            voltage_queryset.values_list("voltage_level", flat=True)
+            .distinct()
+            .order_by("voltage_level")
+        )
+
         # Формируем список напряжений без опции "Все напряжения" (она будет только как placeholder)
         voltage_choices = []
         # Форматируем напряжение без десятичных знаков (если целое число)
@@ -58,11 +64,12 @@ class LineSelectionForm(forms.Form):
             v_float = float(v)
             if v_float == int(v_float):
                 # Целое число - отображаем без десятичных знаков
-                voltage_choices.append((str(v), f'{int(v_float)} кВ'))
+                voltage_choices.append((str(v), f"{int(v_float)} кВ"))
             else:
                 # Дробное число - отображаем как есть
-                voltage_choices.append((str(v), f'{v} кВ'))
-        self.fields['voltage_filter'].choices = voltage_choices
+                voltage_choices.append((str(v), f"{v} кВ"))
+        self.fields["voltage_filter"].choices = voltage_choices
+
     ct = forms.ModelChoiceField(
         queryset=CurrentTransformer.objects.all(),
         label="Трансформатор тока (ТТ)",
@@ -230,20 +237,20 @@ class CalculationFactorsForm(forms.Form):
 
 class ProjectSelectionForm(forms.Form):
     """Форма для выбора проекта PowerFactory."""
-    
+
     project_name = forms.ChoiceField(
         label="Проект PowerFactory",
         required=True,
         choices=[],
-        widget=forms.Select(attrs={'class': 'form-select form-select-sm'})
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
     )
-    
+
     def __init__(self, *args, **kwargs):
-        available_projects = kwargs.pop('available_projects', [])
+        available_projects = kwargs.pop("available_projects", [])
         super().__init__(*args, **kwargs)
         if available_projects:
-            self.fields['project_name'].choices = [
+            self.fields["project_name"].choices = [
                 (name, name) for name in available_projects
             ]
         else:
-            self.fields['project_name'].choices = [('', 'Нет доступных проектов')]
+            self.fields["project_name"].choices = [("", "Нет доступных проектов")]

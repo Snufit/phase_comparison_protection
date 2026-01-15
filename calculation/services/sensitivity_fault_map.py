@@ -13,10 +13,10 @@ from math import sqrt
 
 # Типы КЗ в PowerFactory
 POWERFACTORY_FAULT_TYPES = {
-    '3psc': 'К(3)',      # Трехфазное КЗ
-    '2psc': 'К(2)',      # Двухфазное КЗ
-    '2pgf': 'К(1,1)',    # Двухфазное КЗ на землю
-    'spgf': 'К(1)',      # Однофазное КЗ на землю
+    "3psc": "К(3)",  # Трехфазное КЗ
+    "2psc": "К(2)",  # Двухфазное КЗ
+    "2pgf": "К(1,1)",  # Двухфазное КЗ на землю
+    "spgf": "К(1)",  # Однофазное КЗ на землю
 }
 
 # Места выполнения КЗ
@@ -27,7 +27,7 @@ FAULT_LOCATION_BRANCHES = "branches"  # Шины ПС ответвлений
 class SensitivityFaultMap:
     """
     Карта КЗ для проверки чувствительности органов защиты.
-    
+
     Определяет для каждого органа:
     - fault_types: типы КЗ для моделирования
     - fault_locations: места выполнения КЗ
@@ -38,7 +38,7 @@ class SensitivityFaultMap:
     - use_min_value: использовать минимальное значение из всех КЗ
     - exclude_branches: исключать КЗ на ответвлениях
     """
-    
+
     SENSITIVITY_FAULT_MAP: Dict[str, Dict] = {
         "IЛ ОТКЛ": {
             "description": "Органы с пуском по векторной разности фазных токов",
@@ -111,7 +111,7 @@ class SensitivityFaultMap:
             "description": "Реле направления мощности нулевой последовательности по току",
             "fault_types": ["К(1)"],
             "fault_locations": [FAULT_LOCATION_BRANCHES],
-            "fault_value": "3I0",
+            "fault_value": "RNM_I0",  # Специальное значение для РНМ
             "formula": "k_ч = 3I0_мин / 3I0 РНМ",
             "k_sx": 1.0,
             "k_ch_required": 2.0,
@@ -124,7 +124,7 @@ class SensitivityFaultMap:
             "description": "Реле направления мощности нулевой последовательности по напряжению",
             "fault_types": ["К(1)"],
             "fault_locations": [FAULT_LOCATION_BRANCHES],
-            "fault_value": "3U0",
+            "fault_value": "RNM_U0",  # Специальное значение для РНМ
             "formula": "k_ч = 3U0_мин / 3U0 РНМ",
             "k_sx": 1.0,
             "k_ch_required": 2.0,
@@ -187,22 +187,22 @@ class SensitivityFaultMap:
             "check_sensitivity": False,  # Не проверяется
         },
     }
-    
+
     @classmethod
     def get_fault_map(cls, organ_name: str) -> Optional[Dict]:
         """
         Получает карту КЗ для указанного органа.
-        
+
         :param organ_name: Название органа защиты
         :return: Словарь с параметрами карты КЗ или None, если орган не найден
         """
         return cls.SENSITIVITY_FAULT_MAP.get(organ_name)
-    
+
     @classmethod
     def should_check_sensitivity(cls, organ_name: str) -> bool:
         """
         Проверяет, нужно ли проверять чувствительность для указанного органа.
-        
+
         :param organ_name: Название органа защиты
         :return: True, если нужно проверять чувствительность, False иначе
         """
@@ -210,12 +210,12 @@ class SensitivityFaultMap:
         if fault_map is None:
             return False
         return fault_map.get("check_sensitivity", True)
-    
+
     @classmethod
     def get_fault_types_for_organ(cls, organ_name: str) -> List[str]:
         """
         Получает типы КЗ для указанного органа.
-        
+
         :param organ_name: Название органа защиты
         :return: Список типов КЗ
         """
@@ -223,12 +223,12 @@ class SensitivityFaultMap:
         if fault_map is None:
             return []
         return fault_map.get("fault_types", [])
-    
+
     @classmethod
     def get_fault_locations_for_organ(cls, organ_name: str) -> List[str]:
         """
         Получает места выполнения КЗ для указанного органа.
-        
+
         :param organ_name: Название органа защиты
         :return: Список мест выполнения КЗ
         """
@@ -236,12 +236,12 @@ class SensitivityFaultMap:
         if fault_map is None:
             return []
         return fault_map.get("fault_locations", [])
-    
+
     @classmethod
     def get_powerfactory_fault_types(cls, organ_name: str) -> List[str]:
         """
         Получает типы КЗ в формате PowerFactory для указанного органа.
-        
+
         :param organ_name: Название органа защиты
         :return: Список типов КЗ в формате PowerFactory (например, ['3psc', 'spgf'])
         """
@@ -251,12 +251,12 @@ class SensitivityFaultMap:
             if ru_type in fault_types:
                 powerfactory_types.append(pf_type)
         return powerfactory_types
-    
+
     @classmethod
     def requires_branches(cls, organ_name: str) -> bool:
         """
         Проверяет, требуются ли ответвления для проверки чувствительности.
-        
+
         :param organ_name: Название органа защиты
         :return: True, если требуются ответвления
         """
@@ -264,12 +264,12 @@ class SensitivityFaultMap:
         if fault_map is None:
             return False
         return fault_map.get("requires_branches", False)
-    
+
     @classmethod
     def get_all_organs_requiring_faults(cls) -> List[str]:
         """
         Получает список всех органов, для которых нужно моделировать КЗ.
-        
+
         :return: Список названий органов
         """
         organs = []
@@ -278,12 +278,12 @@ class SensitivityFaultMap:
                 if fault_map.get("fault_types"):
                     organs.append(organ_name)
         return organs
-    
+
     @classmethod
     def get_all_required_fault_types(cls) -> List[str]:
         """
         Получает все типы КЗ, которые необходимо моделировать.
-        
+
         :return: Список типов КЗ в формате PowerFactory
         """
         required_types = set()
@@ -291,12 +291,12 @@ class SensitivityFaultMap:
             types = cls.get_powerfactory_fault_types(organ_name)
             required_types.update(types)
         return sorted(list(required_types))
-    
+
     @classmethod
     def get_summary(cls) -> Dict:
         """
         Получает сводную информацию о карте КЗ.
-        
+
         :return: Словарь со сводной информацией
         """
         summary = {
@@ -306,12 +306,9 @@ class SensitivityFaultMap:
             "required_fault_types": cls.get_all_required_fault_types(),
             "fault_types_mapping": POWERFACTORY_FAULT_TYPES,
         }
-        
+
         for organ_name, fault_map in cls.SENSITIVITY_FAULT_MAP.items():
             if not fault_map.get("check_sensitivity", True):
                 summary["organs_without_sensitivity_check"].append(organ_name)
-        
+
         return summary
-
-
-
