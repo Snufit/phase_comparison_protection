@@ -4,15 +4,23 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('calculation', '0008_faultcalculation_calculation_meta'),
+        ("calculation", "0008_faultcalculation_calculation_meta"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='sensitivityanalysis',
-            name='status',
-            field=models.CharField(choices=[('Нечувствительна', 'Нечувствительна'), ('Низкая чувствительность', 'Низкая чувствительность'), ('Чувствительность', 'Чувствительность')], default='Нечувствительна', max_length=255, verbose_name='Статус'),
+            model_name="sensitivityanalysis",
+            name="status",
+            field=models.CharField(
+                choices=[
+                    ("Нечувствительна", "Нечувствительна"),
+                    ("Низкая чувствительность", "Низкая чувствительность"),
+                    ("Чувствительность", "Чувствительность"),
+                ],
+                default="Нечувствительна",
+                max_length=255,
+                verbose_name="Статус",
+            ),
         ),
     ]

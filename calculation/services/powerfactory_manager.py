@@ -36,14 +36,15 @@ class PowerFactoryManager:
         r"C:\Program Files\DIgSILENT\PowerFactory 2021 SP3\Python\3.8"
     )
     PROJECT_NAME: str = "ОДУ Сибири 1.0"
-    
+
     # Thread-local storage для хранения экземпляра app в каждом потоке
     _thread_local = threading.local()
-    
+
     # Кэш для списка проектов (общий для всех потоков)
     _projects_cache = None
     _projects_cache_time = 0
-    _cache_ttl = 60  # Время жизни кэша в секундах (увеличено для уменьшения частоты запросов)
+    # Время жизни кэша в секундах (увеличено для уменьшения частоты запросов)
+    _cache_ttl = 60
 
     def __init__(self):
         # Добавляем путь только если его еще нет в sys.path
@@ -65,36 +66,37 @@ class PowerFactoryManager:
     def get_application(self, project_name=None):
         """
         Получает приложение PowerFactory с активацией проекта.
-        
+
         Args:
-            project_name: Имя проекта для активации. 
+            project_name: Имя проекта для активации.
                          Если None, используется PROJECT_NAME по умолчанию.
-                         
+
         Returns:
             app: COM-объект PowerFactory
         """
         # Используем переданное имя проекта или значение по умолчанию
         target_project = project_name or self.PROJECT_NAME
-        
+
         # Инициализируем COM для текущего потока в STA режиме (если еще не инициализирован)
         # PowerFactory требует STA (Single Threaded Apartment) модель
         if pythoncom is not None:
             try:
                 # Используем CoInitializeEx с COINIT_APARTMENTTHREADED для STA модели
                 # COINIT_APARTMENTTHREADED = 0x2
-                apartment_threaded = getattr(pythoncom, 'COINIT_APARTMENTTHREADED', 0x2)
+                apartment_threaded = getattr(
+                    pythoncom, 'COINIT_APARTMENTTHREADED', 0x2)
                 pythoncom.CoInitializeEx(apartment_threaded)
             except Exception:
                 # COM уже инициализирован в этом потоке - это нормально
                 # Продолжаем работу, так как COM может быть уже инициализирован
                 pass
-        
+
         # Проверяем, есть ли уже инициализированный app для этого потока
         # ВАЖНО: не используем кэшированный app без проверки, так как он может быть из другого потока
         # Всегда создаем новый app для каждого запроса, чтобы избежать проблем с многопоточностью
         # Thread-local storage может не работать правильно с PowerFactory COM объектами
                 self._thread_local.app = None
-        
+
         # Пытаемся импортировать модуль PowerFactory
         try:
             import powerfactory  # type: ignore
@@ -130,7 +132,7 @@ class PowerFactoryManager:
                                     projects_set.add(name)
                             except Exception:
                                 pass
-                
+
                 # Метод 2: Получаем проекты всех пользователей
                 users = app.GetAllUsers()
                 if users:
@@ -171,7 +173,7 @@ class PowerFactoryManager:
         # Используем повторные попытки с пересозданием app при ошибках многопоточности
         max_retries = 3
         active_project = None
-        
+
         for attempt in range(max_retries):
             try:
                 active_project = safe_get_active_project(app)
@@ -179,7 +181,8 @@ class PowerFactoryManager:
                     break  # Успешно получили активный проект
                 # Если получили None (ошибка многопоточности), пересоздаем app
                 if attempt < max_retries - 1:
-                    print(f"[DEBUG] Ошибка многопоточности при получении активного проекта (попытка {attempt + 1}/{max_retries})")
+                    print(
+                        f"[DEBUG] Ошибка многопоточности при получении активного проекта (попытка {attempt + 1}/{max_retries})")
                 self._thread_local.app = None
                 app = powerfactory.GetApplication()
                 if app is None:
@@ -187,11 +190,13 @@ class PowerFactoryManager:
                         "Не удалось получить приложение PowerFactory. "
                         "Убедитесь, что PowerFactory запущен."
                     )
-                    time.sleep(0.1)  # Небольшая задержка перед повторной попыткой
+                    # Небольшая задержка перед повторной попыткой
+                    time.sleep(0.1)
                     continue
                 else:
                     # Последняя попытка не удалась - пробуем активировать проект напрямую без проверки
-                    print("[DEBUG] Все попытки получения активного проекта не удались, пробуем активировать проект напрямую")
+                    print(
+                        "[DEBUG] Все попытки получения активного проекта не удались, пробуем активировать проект напрямую")
                     try:
                         app.ActivateProject(target_project)
                         # Если активация прошла успешно, сохраняем app и возвращаем его
@@ -200,8 +205,10 @@ class PowerFactoryManager:
                     except Exception as e:
                         # Если и активация не удалась, возвращаем app без проверки
                         # Это позволит продолжить работу, хотя может быть нестабильно
-                        print(f"[DEBUG] Не удалось активировать проект напрямую: {e}")
-                        print("[DEBUG] Возвращаем app без проверки активного проекта (может быть нестабильно)")
+                        print(
+                            f"[DEBUG] Не удалось активировать проект напрямую: {e}")
+                        print(
+                            "[DEBUG] Возвращаем app без проверки активного проекта (может быть нестабильно)")
                         self._thread_local.app = app
                         return app
             except RuntimeError as e:
@@ -209,7 +216,8 @@ class PowerFactoryManager:
                 if "can't be used from other threads" not in str(e):
                     raise
                 # Если это ошибка многопоточности, пробуем активировать проект напрямую
-                print(f"[DEBUG] RuntimeError при получении активного проекта: {e}")
+                print(
+                    f"[DEBUG] RuntimeError при получении активного проекта: {e}")
                 print("[DEBUG] Пробуем активировать проект напрямую без проверки")
                 try:
                     app.ActivateProject(target_project)
@@ -217,26 +225,28 @@ class PowerFactoryManager:
                     return app
                 except Exception:
                     # Если и активация не удалась, возвращаем app без проверки
-                    print("[DEBUG] Возвращаем app без проверки активного проекта (может быть нестабильно)")
+                    print(
+                        "[DEBUG] Возвращаем app без проверки активного проекта (может быть нестабильно)")
                     self._thread_local.app = app
                     return app
             except Exception as e:
                 if attempt < max_retries - 1:
-                    print(f"[DEBUG] Ошибка при получении активного проекта (попытка {attempt + 1}/{max_retries}): {e}")
+                    print(
+                        f"[DEBUG] Ошибка при получении активного проекта (попытка {attempt + 1}/{max_retries}): {e}")
                     self._thread_local.app = None
                     app = powerfactory.GetApplication()
                     if app is None:
-                    raise RuntimeError(
+                        raise RuntimeError(
                             "Не удалось получить приложение PowerFactory. "
                             "Убедитесь, что PowerFactory запущен."
-                    )
+                        )
                     time.sleep(0.1)
                     continue
-            else:
-            raise RuntimeError(
-                f"Ошибка при получении активного проекта PowerFactory: {e}. "
-                "Убедитесь, что PowerFactory запущен и доступен."
-            )
+                else:
+                    raise RuntimeError(
+                        f"Ошибка при получении активного проекта PowerFactory: {e}. "
+                        "Убедитесь, что PowerFactory запущен и доступен."
+                    )
 
         active_name = None
         if active_project:
@@ -256,7 +266,8 @@ class PowerFactoryManager:
                     active_project = safe_get_active_project(app)
                     if active_project:
                         try:
-                            active_name = active_project.GetAttribute("loc_name")
+                            active_name = active_project.GetAttribute(
+                                "loc_name")
                         except Exception:
                             active_name = None
                 else:
@@ -290,7 +301,8 @@ class PowerFactoryManager:
                                     app.ActivateProject(target_project)
                                     active_after = safe_get_active_project(app)
                                     if active_after:
-                                        after_name = active_after.GetAttribute("loc_name")
+                                        after_name = active_after.GetAttribute(
+                                            "loc_name")
                                         if after_name == target_project:
                                             self._thread_local.app = app
                                             return app
@@ -310,7 +322,8 @@ class PowerFactoryManager:
                             app.ActivateProject(target_project)
                             active_after = safe_get_active_project(app)
                             if active_after:
-                                after_name = active_after.GetAttribute("loc_name")
+                                after_name = active_after.GetAttribute(
+                                    "loc_name")
                                 if after_name == target_project:
                                     self._thread_local.app = app
                                     return app
@@ -356,7 +369,8 @@ class PowerFactoryManager:
                                 app.ActivateProject(target_project)
                                 active_after = safe_get_active_project(app)
                                 if active_after:
-                                    after_name = active_after.GetAttribute("loc_name")
+                                    after_name = active_after.GetAttribute(
+                                        "loc_name")
                                     if after_name == target_project:
                                         self._thread_local.app = app
                                         return app
@@ -403,61 +417,63 @@ class PowerFactoryManager:
         Использует кэширование для уменьшения частоты запросов к PowerFactory.
         При ошибках многопоточности выполняет повторные попытки с пересозданием app.
 
-        Returns: 
+        Returns:
             List[str]: Список имен доступных проектов
         """
         # Проверяем кэш
         current_time = time.time()
-        if (self._projects_cache is not None and 
+        if (self._projects_cache is not None and
             (current_time - self._projects_cache_time) < self._cache_ttl):
-            print(f"[DEBUG] Используем кэшированный список проектов (возраст: {int(current_time - self._projects_cache_time)} сек)")
+            print(
+                f"[DEBUG] Используем кэшированный список проектов (возраст: {int(current_time - self._projects_cache_time)} сек)")
             return self._projects_cache.copy()  # Возвращаем копию, чтобы не изменять кэш
-        
+
         # Сохраняем старый кэш на случай ошибки многопоточности
         old_cache = self._projects_cache.copy() if self._projects_cache is not None else None
         old_cache_time = self._projects_cache_time if self._projects_cache is not None else 0
-        
+
         # Инициализируем COM для текущего потока в STA режиме (если еще не инициализирован)
         # PowerFactory требует STA (Single Threaded Apartment) модель
         if pythoncom is not None:
             try:
                 # Используем CoInitializeEx с COINIT_APARTMENTTHREADED для STA модели
                 # COINIT_APARTMENTTHREADED = 0x2
-                apartment_threaded = getattr(pythoncom, 'COINIT_APARTMENTTHREADED', 0x2)
+                apartment_threaded = getattr(
+                    pythoncom, 'COINIT_APARTMENTTHREADED', 0x2)
                 pythoncom.CoInitializeEx(apartment_threaded)
             except Exception:
                 # COM уже инициализирован в этом потоке - это нормально
                 pass
-        
+
         # Вспомогательная функция для безопасного получения проектов
         def safe_get_projects(app_instance, max_retries=3):
             """Безопасно получает проекты с повторными попытками при ошибках многопоточности."""
             projects_set = set()
-            
+
             for attempt in range(max_retries):
                 try:
                     # Очищаем thread-local app перед каждой попыткой
                     if hasattr(self._thread_local, 'app'):
                         self._thread_local.app = None
-            
-            # Метод 1: Получаем проекты текущего пользователя (быстрее)
-            try:
+
+                    # Метод 1: Получаем проекты текущего пользователя (быстрее)
+                    try:
                         current_user = app_instance.GetCurrentUser()
-                if current_user:
-                    projects = current_user.GetContents("*.IntPrj")
-                    if projects:
-                        print(f"[DEBUG] Найдено проектов у текущего пользователя: {len(projects)}")
-                        for proj in projects:
-                            try:
-                                name = proj.GetAttribute('loc_name')
-                                if name:
-                                    projects_set.add(name)
-                                    print(f"[DEBUG] Добавлен проект: {name}")
-                            except Exception as e:
-                                print(f"[DEBUG] Ошибка получения имени проекта: {e}")
-                                pass
-            except RuntimeError as e:
-                if "can't be used from other threads" in str(e):
+                        if current_user:
+                            projects = current_user.GetContents("*.IntPrj")
+                            if projects:
+                                print(f"[DEBUG] Найдено проектов у текущего пользователя: {len(projects)}")
+                                for proj in projects:
+                                    try:
+                                        name = proj.GetAttribute('loc_name')
+                                        if name:
+                                            projects_set.add(name)
+                                            print(f"[DEBUG] Добавлен проект: {name}")
+                                    except Exception as e:
+                                        print(f"[DEBUG] Ошибка получения имени проекта: {e}")
+                                        pass
+                    except RuntimeError as e:
+                        if "can't be used from other threads" in str(e):
                             print(f"[DEBUG] Ошибка многопоточности при получении проектов текущего пользователя (попытка {attempt + 1}/{max_retries})")
                             if attempt < max_retries - 1:
                                 # Пересоздаем app и пробуем снова
@@ -471,30 +487,30 @@ class PowerFactoryManager:
                                 # Последняя попытка не удалась - возвращаем пустой set, чтобы использовать кэш
                                 print(f"[DEBUG] Все попытки получения проектов не удались из-за ошибки многопоточности")
                                 return set()
-                else:
+                        else:
                             raise
-                    
+
                     # Если получили проекты, пробуем получить проекты всех пользователей для полноты
-            if not projects_set:
-                print("[DEBUG] Проекты не найдены у текущего пользователя, проверяем всех пользователей")
-                try:
+                    if not projects_set:
+                        print("[DEBUG] Проекты не найдены у текущего пользователя, проверяем всех пользователей")
+                        try:
                             users = app_instance.GetAllUsers()
-                    if users:
-                        print(f"[DEBUG] Найдено пользователей: {len(users)}")
-                        for user in users:
-                            try:
+                            if users:
+                                print(f"[DEBUG] Найдено пользователей: {len(users)}")
+                                for user in users:
+                                    try:
                                         user_projects = user.GetContents("*.IntPrj")
                                         if user_projects:
                                             print(f"[DEBUG] У пользователя {user} найдено проектов: {len(user_projects)}")
                                             for proj in user_projects:
-                                        try:
-                                            name = proj.GetAttribute('loc_name')
-                                            if name:
-                                                projects_set.add(name)
-                                                print(f"[DEBUG] Добавлен проект: {name}")
-                                        except Exception as e:
-                                            print(f"[DEBUG] Ошибка получения имени проекта: {e}")
-                                            pass
+                                                try:
+                                                    name = proj.GetAttribute('loc_name')
+                                                    if name:
+                                                        projects_set.add(name)
+                                                        print(f"[DEBUG] Добавлен проект: {name}")
+                                                except Exception as e:
+                                                    print(f"[DEBUG] Ошибка получения имени проекта: {e}")
+                                                    pass
                                     except RuntimeError as e:
                                         if "can't be used from other threads" in str(e):
                                             print(f"[DEBUG] Ошибка многопоточности при получении проектов пользователя (попытка {attempt + 1}/{max_retries})")
@@ -512,9 +528,9 @@ class PowerFactoryManager:
                                                 return set()
                                         else:
                                             raise
-                            except Exception as e:
-                                print(f"[DEBUG] Ошибка при получении проектов пользователя: {e}")
-                                pass
+                                    except Exception as e:
+                                        print(f"[DEBUG] Ошибка при получении проектов пользователя: {e}")
+                                        pass
                         except RuntimeError as e:
                             if "can't be used from other threads" in str(e):
                                 print(f"[DEBUG] Ошибка многопоточности при получении проектов всех пользователей (попытка {attempt + 1}/{max_retries})")
@@ -530,13 +546,13 @@ class PowerFactoryManager:
                                     # Последняя попытка не удалась - возвращаем пустой set, чтобы использовать кэш
                                     print(f"[DEBUG] Все попытки получения проектов не удались из-за ошибки многопоточности")
                                     return set()
-                    else:
+                            else:
                                 raise
-                    
+
                     # Если получили проекты, возвращаем их
                     if projects_set:
                         return projects_set
-                    
+
                 except RuntimeError as e:
                     if "can't be used from other threads" in str(e):
                         if attempt < max_retries - 1:

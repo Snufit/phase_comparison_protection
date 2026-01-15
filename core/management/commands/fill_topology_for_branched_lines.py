@@ -8,11 +8,11 @@ from calculation.services.powerfactory_manager import PowerFactoryManager
 class Command(BaseCommand):
     """
     Команда для заполнения HalfSetTopology для всех линий с ответвлениями.
-    
+
     Находит все линии, которые имеют ответвления (через LineBranch),
     и для каждого полукомплекта защиты этих линий получает топологию
     из PowerFactory и сохраняет в БД.
-    
+
     Запуск:
         python manage.py fill_topology_for_branched_lines
         python manage.py fill_topology_for_branched_lines --line-id 123
@@ -61,14 +61,10 @@ class Command(BaseCommand):
                 return
         else:
             # Находим все линии с ответвлениями
-            lines_with_branches = Line.objects.filter(
-                branches__isnull=False
-            ).distinct()
+            lines_with_branches = Line.objects.filter(branches__isnull=False).distinct()
 
         if not lines_with_branches.exists():
-            self.stdout.write(
-                self.style.WARNING("Не найдено линий с ответвлениями")
-            )
+            self.stdout.write(self.style.WARNING("Не найдено линий с ответвлениями"))
             return
 
         total_lines = lines_with_branches.count()
@@ -173,6 +169,7 @@ class Command(BaseCommand):
                             )
                         )
                         import traceback
+
                         self.stdout.write(self.style.ERROR(traceback.format_exc()))
 
                 processed_lines += 1
@@ -203,4 +200,3 @@ class Command(BaseCommand):
         self.stdout.write(f"  Пропущено топологий: {skipped_topologies}")
         if error_count > 0:
             self.stdout.write(self.style.ERROR(f"  Ошибок: {error_count}"))
-

@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("calculation", "0005_remove_faultprotection_component_and_more"),
     ]

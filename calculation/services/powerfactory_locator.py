@@ -245,7 +245,6 @@ def _get_main_substations_with_voltage(branch_object, app=None) -> List[Dict[str
         if not term0_clean or not term1_clean:
             print(f"Предупреждение: пустые терминалы для ветви {branch_object.GetAttribute('loc_name')}")
             return []
-        
         try:
             term0 = abs(int(term0_clean))
             term1 = abs(int(term1_clean))
@@ -688,5 +687,5 @@ def test_branch_functions(app, index: int):
 # Использование
 # lines_info = get_all_lines_with_indexes(app)
 
-#app = _get_powerfactory_app()
-#test_branch_functions(app, index=258)  # Закомментировано для работы без PowerFactory
+# app = _get_powerfactory_app()
+# test_branch_functions(app, index=258)  # Закомментировано для работы без PowerFactory

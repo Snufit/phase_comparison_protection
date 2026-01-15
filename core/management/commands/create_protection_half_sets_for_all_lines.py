@@ -2,18 +2,21 @@ from django.core.management import BaseCommand
 
 from core.models import Line, ProtectionHalfSet, ProtectionDevice, Substation
 from calculation.services.powerfactory_manager import PowerFactoryManager
-from calculation.services.powerfactory_locator import get_pf_line, _get_main_substations_with_voltage
+from calculation.services.powerfactory_locator import (
+    get_pf_line,
+    _get_main_substations_with_voltage,
+)
 
 
 class Command(BaseCommand):
     """
     Команда для автоматического создания полукомплектов защиты для всех линий.
-    
+
     Для каждой линии:
     1. Определяет основные подстанции на концах линии из PowerFactory
     2. Создает ProtectionHalfSet для каждой пары (линия + подстанция)
     3. Использует устройство РЗА "ШЭ 2607 081" по умолчанию
-    
+
     Запуск:
         python manage.py create_protection_half_sets_for_all_lines
         python manage.py create_protection_half_sets_for_all_lines --line-id 123
@@ -88,9 +91,9 @@ class Command(BaseCommand):
                 return
         else:
             # Находим все линии с pf_name
-            lines_to_process = Line.objects.filter(
-                pf_name__isnull=False
-            ).exclude(pf_name="")
+            lines_to_process = Line.objects.filter(pf_name__isnull=False).exclude(
+                pf_name=""
+            )
 
         # Фильтруем только те линии, у которых нет полукомплектов (если указан флаг)
         if options.get("only_missing"):
@@ -102,9 +105,7 @@ class Command(BaseCommand):
             ]
 
         if not lines_to_process:
-            self.stdout.write(
-                self.style.WARNING("Не найдено линий для обработки")
-            )
+            self.stdout.write(self.style.WARNING("Не найдено линий для обработки"))
             return
 
         # Преобразуем QuerySet в список для единообразной обработки
@@ -173,9 +174,7 @@ class Command(BaseCommand):
                     main_substations = _get_main_substations_with_voltage(pf_line, app)
                 except Exception as e:
                     self.stdout.write(
-                        self.style.ERROR(
-                            f"  ✗ Ошибка при определении подстанций: {e}"
-                        )
+                        self.style.ERROR(f"  ✗ Ошибка при определении подстанций: {e}")
                     )
                     error_count += 1
                     skipped_lines += 1
@@ -243,6 +242,7 @@ class Command(BaseCommand):
                             )
                         )
                         import traceback
+
                         self.stdout.write(self.style.ERROR(traceback.format_exc()))
                         continue
 
@@ -264,6 +264,7 @@ class Command(BaseCommand):
                     )
                 )
                 import traceback
+
                 self.stdout.write(self.style.ERROR(traceback.format_exc()))
                 continue
 
@@ -276,5 +277,3 @@ class Command(BaseCommand):
         self.stdout.write(f"  Пропущено полукомплектов: {skipped_half_sets}")
         if error_count > 0:
             self.stdout.write(self.style.ERROR(f"  Ошибок: {error_count}"))
-
-

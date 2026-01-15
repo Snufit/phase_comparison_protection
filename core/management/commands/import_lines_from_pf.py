@@ -42,7 +42,7 @@ class Command(BaseCommand):
             # Подключаемся к PowerFactory
             self.stdout.write("Подключение к PowerFactory...")
             pf_manager = PowerFactoryManager()
-            
+
             # Если указано имя проекта через параметр, используем его
             if options.get("project"):
                 pf_manager.PROJECT_NAME = options["project"]
@@ -51,7 +51,7 @@ class Command(BaseCommand):
                         f"Используется проект: {pf_manager.PROJECT_NAME}"
                     )
                 )
-            
+
             app = pf_manager.get_application()
             self.stdout.write(self.style.SUCCESS("Подключение к PowerFactory успешно"))
 
@@ -110,7 +110,9 @@ class Command(BaseCommand):
                     try:
                         length_raw = pf_line.GetAttribute("length")
                         if length_raw is not None:
-                            length = Decimal(str(round(length_raw, 2)))  # Округляем до 2 знаков после запятой
+                            length = Decimal(
+                                str(round(length_raw, 2))
+                            )  # Округляем до 2 знаков после запятой
                     except Exception as e:
                         self.stdout.write(
                             self.style.WARNING(
@@ -123,7 +125,9 @@ class Command(BaseCommand):
                     try:
                         r1_raw = pf_line.GetAttribute("R1")
                         if r1_raw is not None:
-                            r1 = Decimal(str(round(r1_raw, 2)))  # Округляем до 2 знаков после запятой
+                            r1 = Decimal(
+                                str(round(r1_raw, 2))
+                            )  # Округляем до 2 знаков после запятой
                     except Exception as e:
                         self.stdout.write(
                             self.style.WARNING(
@@ -136,7 +140,9 @@ class Command(BaseCommand):
                     try:
                         r0_raw = pf_line.GetAttribute("R0")
                         if r0_raw is not None:
-                            r0 = Decimal(str(round(r0_raw, 2)))  # Округляем до 2 знаков после запятой
+                            r0 = Decimal(
+                                str(round(r0_raw, 2))
+                            )  # Округляем до 2 знаков после запятой
                     except Exception as e:
                         self.stdout.write(
                             self.style.WARNING(
@@ -149,7 +155,9 @@ class Command(BaseCommand):
                     try:
                         x1_raw = pf_line.GetAttribute("X1")
                         if x1_raw is not None:
-                            x1 = Decimal(str(round(x1_raw, 2)))  # Округляем до 2 знаков после запятой
+                            x1 = Decimal(
+                                str(round(x1_raw, 2))
+                            )  # Округляем до 2 знаков после запятой
                     except Exception as e:
                         self.stdout.write(
                             self.style.WARNING(
@@ -162,7 +170,9 @@ class Command(BaseCommand):
                     try:
                         x0_raw = pf_line.GetAttribute("X0")
                         if x0_raw is not None:
-                            x0 = Decimal(str(round(x0_raw, 2)))  # Округляем до 2 знаков после запятой
+                            x0 = Decimal(
+                                str(round(x0_raw, 2))
+                            )  # Округляем до 2 знаков после запятой
                     except Exception as e:
                         self.stdout.write(
                             self.style.WARNING(
@@ -217,11 +227,17 @@ class Command(BaseCommand):
                     # Проверяем, есть ли у линии ответвления
                     has_branches = False
                     branch_substations = []
-                    if line_type_str and ("ответвлением" in line_type_str or "ответвлениями" in line_type_str):
+                    if line_type_str and (
+                        "ответвлением" in line_type_str
+                        or "ответвлениями" in line_type_str
+                    ):
                         # Линия имеет ответвления - определяем количество и подстанции
                         try:
                             branch_substations = _has_branches(
-                                app, pf_line, return_branch_substations=True, check_substations=True
+                                app,
+                                pf_line,
+                                return_branch_substations=True,
+                                check_substations=True,
                             )
                             has_branches = len(branch_substations) > 0
                         except Exception as e:
@@ -281,16 +297,20 @@ class Command(BaseCommand):
 
                         # Создаем или обновляем LineBranch для линий с ответвлениями
                         if has_branches:
-                            existing_branches = LineBranch.objects.filter(line=existing_line)
+                            existing_branches = LineBranch.objects.filter(
+                                line=existing_line
+                            )
                             existing_branch_count = existing_branches.count()
-                            
+
                             # Обновляем pf_name_line в существующих LineBranch
                             existing_branches.update(pf_name_line=pf_name)
-                            
+
                             # Если записей LineBranch нет или их меньше чем подстанций ответвлений
                             if existing_branch_count < len(branch_substations):
                                 # Создаем недостающие записи LineBranch
-                                for i in range(len(branch_substations) - existing_branch_count):
+                                for i in range(
+                                    len(branch_substations) - existing_branch_count
+                                ):
                                     LineBranch.objects.create(
                                         line=existing_line,
                                         pf_name_line=pf_name,
@@ -303,7 +323,9 @@ class Command(BaseCommand):
                                     )
                                 )
 
-                        length_str = f", длина: {length:.2f} км" if length is not None else ""
+                        length_str = (
+                            f", длина: {length:.2f} км" if length is not None else ""
+                        )
                         voltage_str = f"{voltage_level or Decimal('0.00'):.2f}"
                         type_str = f", тип: {line_type_str}" if line_type_str else ""
                         self.stdout.write(
@@ -321,7 +343,8 @@ class Command(BaseCommand):
                             dispatch_name=dispatch_name,
                             pf_name=pf_name,
                             index_pf=index,
-                            voltage_level=voltage_level or Decimal("0.00"),  # По умолчанию 0.00 кВ
+                            voltage_level=voltage_level
+                            or Decimal("0.00"),  # По умолчанию 0.00 кВ
                             length=length or Decimal("0.00"),  # По умолчанию 0.00 км
                             r1=r1,  # Сопротивление прямой последовательности
                             r0=r0,  # Сопротивление нулевой последовательности
@@ -347,7 +370,9 @@ class Command(BaseCommand):
                                 )
                             )
 
-                        length_str = f", длина: {length:.2f} км" if length is not None else ""
+                        length_str = (
+                            f", длина: {length:.2f} км" if length is not None else ""
+                        )
                         voltage_str = f"{voltage_level or Decimal('0.00'):.2f}"
                         type_str = f", тип: {line_type_str}" if line_type_str else ""
                         self.stdout.write(
@@ -363,6 +388,7 @@ class Command(BaseCommand):
                         self.style.ERROR(f"[{index}] Ошибка при обработке линии: {e}")
                     )
                     import traceback
+
                     self.stdout.write(self.style.ERROR(traceback.format_exc()))
 
             # Выводим статистику
@@ -384,5 +410,5 @@ class Command(BaseCommand):
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Ошибка при импорте: {str(e)}"))
             import traceback
-            self.stdout.write(self.style.ERROR(traceback.format_exc()))
 
+            self.stdout.write(self.style.ERROR(traceback.format_exc()))

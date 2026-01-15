@@ -7,7 +7,7 @@ class Command(BaseCommand):
     """
     Команда для назначения трансформаторов напряжения (ТН) линиям в зависимости от напряжения.
     Трансформаторы должны быть предварительно созданы в БД.
-    
+
     Логика назначения:
     - Для линий 110 кВ: ищет ТН с primary_voltage = 110
     - Для линий 220 кВ: ищет ТН с primary_voltage = 220
@@ -33,24 +33,18 @@ class Command(BaseCommand):
 
         # Словарь для сопоставления напряжения и трансформаторов напряжения
         transformer_map = {}
-        
+
         for voltage in [110, 220, 500]:
             # Ищем ТН по primary_voltage
             vt = VoltageTransformer.objects.filter(primary_voltage=voltage).first()
-            
+
             if vt:
                 transformer_map[voltage] = vt
                 self.stdout.write(
-                    self.style.SUCCESS(
-                        f"Найден ТН для {voltage} кВ: {vt}"
-                    )
+                    self.style.SUCCESS(f"Найден ТН для {voltage} кВ: {vt}")
                 )
             else:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"Для {voltage} кВ не найден ТН"
-                    )
-                )
+                self.stdout.write(self.style.WARNING(f"Для {voltage} кВ не найден ТН"))
 
         if not transformer_map:
             self.stdout.write(
@@ -82,7 +76,9 @@ class Command(BaseCommand):
                     continue
 
                 # Определяем напряжение линии
-                voltage_level = float(line.voltage_level) if line.voltage_level else None
+                voltage_level = (
+                    float(line.voltage_level) if line.voltage_level else None
+                )
 
                 if voltage_level is None:
                     self.stdout.write(
@@ -139,4 +135,3 @@ class Command(BaseCommand):
                 f"Ошибок: {error_count}"
             )
         )
-

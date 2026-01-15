@@ -37,9 +37,7 @@ class Command(BaseCommand):
                 pf_manager.PROJECT_NAME = options["project"]
 
             app = pf_manager.get_application()
-            self.stdout.write(
-                self.style.SUCCESS("Подключение к PowerFactory успешно")
-            )
+            self.stdout.write(self.style.SUCCESS("Подключение к PowerFactory успешно"))
 
             # Получаем все подстанции из PowerFactory
             self.stdout.write("Получение подстанций из PowerFactory...")
@@ -121,9 +119,7 @@ class Command(BaseCommand):
                         Substation.objects.create(pf_name=pf_name)
 
                         self.stdout.write(
-                            self.style.SUCCESS(
-                                f"[{index}] {pf_name}: создана"
-                            )
+                            self.style.SUCCESS(f"[{index}] {pf_name}: создана")
                         )
                         created_count += 1
 
@@ -148,8 +144,5 @@ class Command(BaseCommand):
             )
 
         except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f"Ошибка при импорте: {str(e)}")
-            )
+            self.stdout.write(self.style.ERROR(f"Ошибка при импорте: {str(e)}"))
             raise
-

@@ -5,15 +5,19 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('calculation', '0007_calculationmeta_user'),
+        ("calculation", "0007_calculationmeta_user"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='faultcalculation',
-            name='calculation_meta',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to='calculation.calculationmeta'),
+            model_name="faultcalculation",
+            name="calculation_meta",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                to="calculation.calculationmeta",
+            ),
         ),
     ]

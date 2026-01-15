@@ -24,7 +24,7 @@
             </tr>
             </thead>
             <tbody>
-            {% for result in sens_analysis %}
+            {% for result in page_obj %}
                 <tr>
                     <td>{{ result.settings_calculation.protection_half_set }}</td>
                     <td>{{ result.settings_calculation.component }}</td>
@@ -77,16 +77,16 @@
                         <div class="mb-3">
                             <label for="component" class="form-label">Орган</label>
                             <select class="form-select" id="component" name="component_id">
-                                {% for result in sens_analysis %}
-                                    <option value="{{ result.settings_calculation.component.id }}">{{ result.settings_calculation.component }}</option>
+                                {% for component_id, component_name in unique_components %}
+                                    <option value="{{ component_id }}">{{ component_name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         <div class="mb-3">
                             <label for="half_set" class="form-label">Полукомплект</label>
                             <select class="form-select" id="half_set" name="half_set_id">
-                                {% for result in sens_analysis %}
-                                    <option value="{{ result.settings_calculation.protection_half_set.id }}">{{ result.settings_calculation.protection_half_set }}</option>
+                                {% for half_set_id, half_set_name in unique_half_sets %}
+                                    <option value="{{ half_set_id }}">{{ half_set_name }}</option>
                                 {% endfor %}
                             </select>
                         </div>

@@ -8,43 +8,46 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--manufacturer',
+            "--manufacturer",
             type=str,
             help='Название производителя (например: "ООО НПП «ЭКРА»" или "ЭКРА")',
         )
         parser.add_argument(
-            '--device-model',
+            "--device-model",
             type=str,
-            help='Модель устройства защиты для заполнения (если не указано, заполняет все модели производителя)',
+            help="Модель устройства защиты для заполнения (если не указано, заполняет все модели производителя)",
         )
         parser.add_argument(
-            '--all-manufacturers',
-            action='store_true',
-            help='Обработать все производители из DEVICE_COMPONENTS_MAP',
+            "--all-manufacturers",
+            action="store_true",
+            help="Обработать все производители из DEVICE_COMPONENTS_MAP",
         )
 
     def handle(self, *args, **options):
         # Определяем, какие производители обрабатывать
         manufacturers_to_process = []
-        
-        if options.get('all_manufacturers'):
+
+        if options.get("all_manufacturers"):
             # Обрабатываем всех производителей из DEVICE_COMPONENTS_MAP
             manufacturers_to_process = list(DEVICE_COMPONENTS_MAP.keys())
-        elif options.get('manufacturer'):
+        elif options.get("manufacturer"):
             # Ищем производителя по названию (с учетом возможных вариантов)
-            manufacturer_name = options['manufacturer']
+            manufacturer_name = options["manufacturer"]
             found_manufacturer = None
-            
+
             # Прямое совпадение
             if manufacturer_name in DEVICE_COMPONENTS_MAP:
                 found_manufacturer = manufacturer_name
             else:
                 # Поиск по частичному совпадению (например, "ЭКРА" -> "ООО НПП «ЭКРА»")
                 for key in DEVICE_COMPONENTS_MAP.keys():
-                    if manufacturer_name.upper() in key.upper() or key.upper() in manufacturer_name.upper():
+                    if (
+                        manufacturer_name.upper() in key.upper()
+                        or key.upper() in manufacturer_name.upper()
+                    ):
                         found_manufacturer = key
                         break
-            
+
             if found_manufacturer:
                 manufacturers_to_process = [found_manufacturer]
             else:
@@ -73,28 +76,35 @@ class Command(BaseCommand):
         # Обрабатываем каждого производителя
         for manufacturer_name in manufacturers_to_process:
             self.stdout.write(
-                self.style.SUCCESS(f"\n{'='*60}\nОбработка производителя: {manufacturer_name}\n{'='*60}\n")
+                self.style.SUCCESS(
+                    f"\n{'='*60}\nОбработка производителя: {manufacturer_name}\n{'='*60}\n"
+                )
             )
 
             # Получаем модели устройств для этого производителя
             manufacturer_models = DEVICE_COMPONENTS_MAP.get(manufacturer_name, {})
-            
+
             if not manufacturer_models:
                 self.stdout.write(
-                    self.style.WARNING(f"  Нет моделей устройств для производителя '{manufacturer_name}'")
+                    self.style.WARNING(
+                        f"  Нет моделей устройств для производителя '{manufacturer_name}'"
+                    )
                 )
                 continue
 
             # Определяем, какие модели обрабатывать
             models_to_process = []
-            if options.get('device_model'):
+            if options.get("device_model"):
                 # Ищем конкретную модель
                 found_model = None
                 for model_key in manufacturer_models.keys():
-                    if options['device_model'] in model_key or model_key in options['device_model']:
+                    if (
+                        options["device_model"] in model_key
+                        or model_key in options["device_model"]
+                    ):
                         found_model = model_key
                         break
-                
+
                 if found_model:
                     models_to_process = [found_model]
                 else:
@@ -115,7 +125,9 @@ class Command(BaseCommand):
                 model_components = manufacturer_models.get(model_name, {})
                 all_components_for_manufacturer.update(model_components.keys())
 
-            self.stdout.write(f"  Создание компонентов для производителя '{manufacturer_name}'...")
+            self.stdout.write(
+                f"  Создание компонентов для производителя '{manufacturer_name}'..."
+            )
 
             # Создаем компоненты
             created_components = 0
@@ -126,21 +138,25 @@ class Command(BaseCommand):
                     if comp_name in manufacturer_models.get(model_name, {}):
                         component_data = manufacturer_models[model_name][comp_name]
                         break
-                
-                description = component_data.get('description', f'Орган защиты {comp_name}') if component_data else f'Орган защиты {comp_name}'
-                
+
+                description = (
+                    component_data.get("description", f"Орган защиты {comp_name}")
+                    if component_data
+                    else f"Орган защиты {comp_name}"
+                )
+
                 component, created = Component.objects.get_or_create(
                     setting_designation=comp_name,
                     defaults={
-                        'name': comp_name,
-                        'description': description,
-                        'is_active': True,
-                    }
+                        "name": comp_name,
+                        "description": description,
+                        "is_active": True,
+                    },
                 )
                 if created:
                     created_components += 1
                     self.stdout.write(
-                        self.style.SUCCESS(f'    ✓ Создан компонент: {comp_name}')
+                        self.style.SUCCESS(f"    ✓ Создан компонент: {comp_name}")
                     )
                 else:
                     # Обновляем описание, если оно изменилось
@@ -148,7 +164,7 @@ class Command(BaseCommand):
                         component.description = description
                         component.save()
                         self.stdout.write(
-                            self.style.WARNING(f'    ↻ Обновлен компонент: {comp_name}')
+                            self.style.WARNING(f"    ↻ Обновлен компонент: {comp_name}")
                         )
 
             total_created_components += created_components
@@ -161,20 +177,22 @@ class Command(BaseCommand):
             # Обрабатываем каждую модель устройства
             for model_name in models_to_process:
                 self.stdout.write(f"  Обработка модели: {model_name}")
-                
+
                 # Получаем компоненты для этой модели
                 model_components = manufacturer_models.get(model_name, {})
                 component_names = list(model_components.keys())
-                
+
                 if not component_names:
                     self.stdout.write(
-                        self.style.WARNING(f"    Нет компонентов для модели '{model_name}'")
+                        self.style.WARNING(
+                            f"    Нет компонентов для модели '{model_name}'"
+                        )
                     )
                     continue
 
                 # Получаем или создаем устройство защиты в БД
                 device = None
-                
+
                 # Сначала пытаемся найти по точному совпадению
                 try:
                     device = ProtectionDevice.objects.get(device_model=model_name)
@@ -187,20 +205,26 @@ class Command(BaseCommand):
                         matching_devices = ProtectionDevice.objects.filter(
                             device_model__icontains=model_keywords[0]
                         )
-                        
+
                         # Если есть производитель, фильтруем по нему
                         if manufacturer_name:
                             # Пытаемся найти производителя в БД
                             manufacturer_obj = None
                             # Ищем производителя по точному или частичному совпадению
                             for mfr_name in Manufacturer.objects.all():
-                                if manufacturer_name.upper() in mfr_name.name.upper() or mfr_name.name.upper() in manufacturer_name.upper():
+                                if (
+                                    manufacturer_name.upper() in mfr_name.name.upper()
+                                    or mfr_name.name.upper()
+                                    in manufacturer_name.upper()
+                                ):
                                     manufacturer_obj = mfr_name
                                     break
-                            
+
                             if manufacturer_obj:
-                                matching_devices = matching_devices.filter(manufacturer_fk=manufacturer_obj)
-                        
+                                matching_devices = matching_devices.filter(
+                                    manufacturer_fk=manufacturer_obj
+                                )
+
                         if matching_devices.exists():
                             device = matching_devices.first()
                             self.stdout.write(
@@ -208,48 +232,62 @@ class Command(BaseCommand):
                                     f"    Устройство '{model_name}' не найдено, используется '{device.device_model}'"
                                 )
                             )
-                
+
                 # Если устройство все еще не найдено, создаем его
                 if device is None:
                     # Получаем или создаем производителя
                     manufacturer_obj = None
                     if manufacturer_name:
                         for mfr_name in Manufacturer.objects.all():
-                            if manufacturer_name.upper() in mfr_name.name.upper() or mfr_name.name.upper() in manufacturer_name.upper():
+                            if (
+                                manufacturer_name.upper() in mfr_name.name.upper()
+                                or mfr_name.name.upper() in manufacturer_name.upper()
+                            ):
                                 manufacturer_obj = mfr_name
                                 break
-                        
+
                         if manufacturer_obj is None:
                             # Создаем производителя, если его нет
-                            manufacturer_obj, created = Manufacturer.objects.get_or_create(
+                            (
+                                manufacturer_obj,
+                                created,
+                            ) = Manufacturer.objects.get_or_create(
                                 name=manufacturer_name
                             )
                             if created:
                                 self.stdout.write(
-                                    self.style.SUCCESS(f"    ✓ Создан производитель: {manufacturer_name}")
+                                    self.style.SUCCESS(
+                                        f"    ✓ Создан производитель: {manufacturer_name}"
+                                    )
                                 )
-                    
+
                     # Создаем устройство защиты
                     # Используем короткое название модели (первую часть до "/")
-                    short_model_name = model_name.split('/')[0].strip()
+                    short_model_name = model_name.split("/")[0].strip()
                     device, created = ProtectionDevice.objects.get_or_create(
                         device_model=short_model_name,
                         defaults={
-                            'manufacturer_fk': manufacturer_obj,
-                        }
+                            "manufacturer_fk": manufacturer_obj,
+                        },
                     )
                     if created:
                         self.stdout.write(
-                            self.style.SUCCESS(f"    ✓ Создано устройство защиты: {short_model_name}")
+                            self.style.SUCCESS(
+                                f"    ✓ Создано устройство защиты: {short_model_name}"
+                            )
                         )
                     else:
                         self.stdout.write(
-                            self.style.WARNING(f"    - Устройство уже существует: {short_model_name}")
+                            self.style.WARNING(
+                                f"    - Устройство уже существует: {short_model_name}"
+                            )
                         )
 
                 # Получаем компоненты из БД
-                components_to_add = Component.objects.filter(setting_designation__in=component_names)
-                
+                components_to_add = Component.objects.filter(
+                    setting_designation__in=component_names
+                )
+
                 # Добавляем компоненты к устройству
                 existing_count = device.components.count()
                 device.components.add(*components_to_add)
@@ -272,9 +310,9 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f'\n{"="*60}'
-                f'\n✓ Заполнение завершено!'
-                f'\n  Создано компонентов: {total_created_components}'
-                f'\n  Обработано устройств: {total_processed_devices}'
+                f"\n✓ Заполнение завершено!"
+                f"\n  Создано компонентов: {total_created_components}"
+                f"\n  Обработано устройств: {total_processed_devices}"
                 f'\n{"="*60}'
             )
         )

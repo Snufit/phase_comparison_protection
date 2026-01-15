@@ -3,6 +3,7 @@
 {% block content %}
 <div class="container mt-3">
     <h4 class="mb-3">Результаты расчета</h4>
+    <p><strong>ID расчета:</strong> {{ calculation_meta.id }}</p>
     <p><strong>Защищаемая ЛЭП:</strong> {{ calculation_meta.line }}</p>
     <p><strong>Дата расчета:</strong> {{ calculation_meta.calculation_date }}</p>
     <a href="{% url 'sensitivity_analysis' calculation_meta.id %}" class="btn btn-primary mb-2">

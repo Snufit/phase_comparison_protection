@@ -54,6 +54,7 @@ class MethodologyDocument(models.Model):
         :return: Только имя файла без пути.
         """
         import os
+
         return os.path.basename(self.name_file)
 
 
@@ -133,9 +134,7 @@ class CurrentTransformer(models.Model):
         verbose_name_plural = "Трансформаторы тока"
 
     def __str__(self):
-        return (
-            f"{self.model_ct_pf_name}"
-        )
+        return f"{self.model_ct_pf_name}"
 
     def calculate_ratio(self) -> float:
         """
@@ -212,7 +211,6 @@ class VoltageTransformer(models.Model):
         verbose_name_plural = "Трансформаторы напряжения"
 
     def __str__(self):
-
         return f"{self.model_vt_pf_name}"
 
     def calculate_ratio(self, line_voltage_kv=None) -> float:
@@ -220,7 +218,7 @@ class VoltageTransformer(models.Model):
         Вычисляет коэффициент трансформации ТН.
 
         Args:
-            line_voltage_kv: Напряжение ЛЭП в кВ (может быть Decimal или float). 
+            line_voltage_kv: Напряжение ЛЭП в кВ (может быть Decimal или float).
                            Если не указано, используется primary_voltage.
 
         Returns:
@@ -447,11 +445,11 @@ class Line(models.Model):
             try:
                 length = pf_line.GetAttribute("length")
                 if length is not None:
-                    self.length = Decimal(str(round(length, 2)))  # Округляем до 2 знаков после запятой
+                    self.length = Decimal(
+                        str(round(length, 2))
+                    )  # Округляем до 2 знаков после запятой
             except Exception as e:
-                print(
-                    f"Не удалось получить длину для ЛЭП {self.dispatch_name}: {e}"
-                )
+                print(f"Не удалось получить длину для ЛЭП {self.dispatch_name}: {e}")
 
             self.save()
         except Exception as e:
@@ -515,7 +513,7 @@ class Line(models.Model):
                 key = (sub["name"], sub["voltage_kv"])
                 if key in branch_substations_keys:
                     substation_name = sub["name"]
-                    
+
                     # Находим или создаем подстанцию в БД
                     substation, _ = Substation.objects.get_or_create(
                         pf_name=substation_name
@@ -763,65 +761,67 @@ class ProtectionDevice(models.Model):
         """
 
         return self.device_model
-    
+
     def get_methodology_by_voltage(self, voltage_level):
         """
         Возвращает методику расчета в зависимости от напряжения ЛЭП.
         Ищет методику по напряжению среди всех доступных методик.
-        
+
         Args:
             voltage_level: Напряжение ЛЭП в кВ (Decimal или float)
-            
+
         Returns:
             MethodologyDocument или None
         """
         if voltage_level is None:
             return self.methodology
-        
+
         # Преобразуем в float для сравнения
         voltage = float(voltage_level)
-        
+
         # Получаем название производителя для уточнения поиска
         manufacturer_name = None
         if self.manufacturer_fk:
             manufacturer_name = self.manufacturer_fk.name
-        
+
         # Если напряжение >= 330 кВ, ищем методику для 330 и выше
         if voltage >= 330:
             # Ищем методику с "330" в имени файла
             # Если есть производитель, ищем среди методик с его названием в пути
             if manufacturer_name:
                 methodology_330 = MethodologyDocument.objects.filter(
-                    Q(name_file__icontains="330") & Q(name_file__icontains=manufacturer_name)
+                    Q(name_file__icontains="330")
+                    & Q(name_file__icontains=manufacturer_name)
                 ).first()
                 if methodology_330:
                     return methodology_330
-            
+
             # Если не найдено с производителем, ищем любую методику для 330
             methodology_330 = MethodologyDocument.objects.filter(
                 name_file__icontains="330"
             ).first()
             if methodology_330:
                 return methodology_330
-        
+
         # Если напряжение < 330 кВ, ищем методику для 110-220
         elif voltage >= 110:
             # Ищем методику с "110-220" в имени файла
             # Если есть производитель, ищем среди методик с его названием в пути
             if manufacturer_name:
                 methodology_110_220 = MethodologyDocument.objects.filter(
-                    Q(name_file__icontains="110-220") & Q(name_file__icontains=manufacturer_name)
+                    Q(name_file__icontains="110-220")
+                    & Q(name_file__icontains=manufacturer_name)
                 ).first()
                 if methodology_110_220:
                     return methodology_110_220
-            
+
             # Если не найдено с производителем, ищем любую методику для 110-220
             methodology_110_220 = MethodologyDocument.objects.filter(
                 name_file__icontains="110-220"
             ).first()
             if methodology_110_220:
                 return methodology_110_220
-        
+
         # Если не найдено, возвращаем основную методику
         return self.methodology
 

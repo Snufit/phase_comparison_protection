@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("core", "0002_line_pf_name_substation_pf_name"),
         ("calculation", "0002_faultcalculation"),

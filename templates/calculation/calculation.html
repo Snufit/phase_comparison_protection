@@ -169,10 +169,10 @@
         <div class="col-6">
             <!-- Карточка ЛЭП -->
             <div class="card">
-                <div class="card-header">
+        <div class="card-header">
                     Защищаемая ЛЭП
-                </div>
-                <div class="card-body">
+        </div>
+        <div class="card-body">
                     <p><strong>Диспетчерское наименование: </strong>
                         {{ line.dispatch_name }}
                     </p>
@@ -210,19 +210,19 @@
                     <p class="mb-0 ps-3">{{ branch_substations.0 }}</p>
                     {% endif %}
                     {% endif %}
-                </div>
-            </div>
+        </div>
+    </div>
 
             <!-- Карточка устройства РЗА -->
             <div class="card mt-3">
-                <div class="card-header">
+        <div class="card-header">
                     Устройство РЗА
-                </div>
-                <div class="card-body">
+        </div>
+        <div class="card-body">
                     <p><strong>Модель устройства: </strong>
                         {{ protection_device.device_model }}
                     </p>
-                    <p><strong>Производитель: </strong>
+            <p><strong>Производитель: </strong>
                         {% if protection_device.manufacturer_fk %}
                         {{ protection_device.manufacturer_fk.name }}
                         {% endif %}
@@ -584,8 +584,7 @@
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox"
                                                 id="organ_enabled_{{ organ.original_name }}"
-                                                name="organ_enabled_{{ organ.original_name }}" {% if
-                                                organ.enabled%}checked{% endif %}
+                                                name="organ_enabled_{{ organ.original_name }}" {% if organ.enabled %}checked{% endif %}
                                                 onchange="toggleOrgan('{{ organ.original_name }}', this.checked)">
                                             <label class="form-check-label"
                                                 for="organ_enabled_{{ organ.original_name }}"
@@ -605,8 +604,7 @@
                                             <input type="number" class="form-control" id="id_{{ factor_key }}"
                                                 name="{{ factor_key }}"
                                                 value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
-                                                step="0.01" min="0" {% if organ.toggleable and not
-                                                organ.enabled%}disabled{% endif %} required>
+                                                step="0.01" min="0" {% if organ.toggleable and not organ.enabled %}disabled{% endif %} required>
                                         </div>
                                         {% endfor %}
                                     </div>
@@ -614,10 +612,10 @@
                                     <p class="text-muted mb-0">
                                         {% if organ.toggleable and not organ.enabled %}
                                         Орган отключен. Включите его для настройки коэффициентов.
-                                        {% else %}
+                {% else %}
                                         Коэффициенты не требуются
-                                        {% endif %}
-                                    </p>
+                {% endif %}
+            </p>
                                     {% endif %}
                                 </div>
                                 {% endfor %}
@@ -668,7 +666,7 @@
                                 {% csrf_token %}
                                 {% if protection_device %}
                                 <input type="hidden" name="device_id" value="{{ protection_device.id }}">
-                                {% endif %}
+    {% endif %}
 
                                 <!-- Поле выбора производителя -->
                                 <div class="mb-3">

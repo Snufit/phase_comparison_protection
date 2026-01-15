@@ -12,7 +12,7 @@ from calculation.services.powerfactory_locator import (
 class Command(BaseCommand):
     """
     Команда для заполнения подстанций в существующих записях LineBranch.
-    
+
     Логика работы:
     1. Находит все LineBranch без подстанций (substation is None)
     2. Для каждой линии определяет подстанции ответвлений через PowerFactory
@@ -48,16 +48,16 @@ class Command(BaseCommand):
                 pf_manager.PROJECT_NAME = options["project"]
 
             app = pf_manager.get_application()
-            self.stdout.write(
-                self.style.SUCCESS("Подключение к PowerFactory успешно")
-            )
+            self.stdout.write(self.style.SUCCESS("Подключение к PowerFactory успешно"))
 
             # Находим все LineBranch без подстанций (где substation is None)
             line_branches = LineBranch.objects.filter(substation__isnull=True)
-            
+
             if not line_branches.exists():
                 self.stdout.write(
-                    self.style.WARNING("Не найдено LineBranch без подстанций для заполнения")
+                    self.style.WARNING(
+                        "Не найдено LineBranch без подстанций для заполнения"
+                    )
                 )
                 return
 
@@ -121,13 +121,17 @@ class Command(BaseCommand):
 
                     # Заполняем подстанции для каждого LineBranch
                     branch_substations_list = [
-                        sub for sub in all_substations
+                        sub
+                        for sub in all_substations
                         if (sub["name"], sub["voltage_kv"]) in branch_substations_keys
                     ]
 
                     # Если подстанций ответвлений больше чем LineBranch, создаем недостающие
                     if len(branch_substations_list) > line_branches_for_line.count():
-                        for _ in range(len(branch_substations_list) - line_branches_for_line.count()):
+                        for _ in range(
+                            len(branch_substations_list)
+                            - line_branches_for_line.count()
+                        ):
                             LineBranch.objects.create(
                                 line=line,
                                 pf_name_line=line.pf_name,
@@ -189,9 +193,5 @@ class Command(BaseCommand):
             )
 
         except Exception as e:
-            self.stdout.write(
-                self.style.ERROR(f"Ошибка при импорте: {str(e)}")
-            )
+            self.stdout.write(self.style.ERROR(f"Ошибка при импорте: {str(e)}"))
             raise
-
-

@@ -17,7 +17,6 @@ def convert_float_to_decimal(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("core", "0007_line_index_pf"),
     ]

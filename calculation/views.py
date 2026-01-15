@@ -51,7 +51,6 @@ FAULT_TYPE_COLORS = {
 
 
 class CalculationView(LoginRequiredMixin, TemplateView):
-
     template_name = "calculation/calculation.html"
     pf_manager = PowerFactoryManager()
 
@@ -59,15 +58,15 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         print(f"User is authenticated: {request.user.is_authenticated}")
 
         # Получаем проект из сессии для фильтрации данных
-        project_name = request.session.get('pf_project_name')
+        project_name = request.session.get("pf_project_name")
         line_id = request.session.get("line_id", None)
-        
+
         # Создаем форму и устанавливаем начальные значения
         line_form = LineSelectionForm(project_name=project_name)
-        
+
         # Явно устанавливаем ТН в None по умолчанию
-        line_form.fields['vt'].initial = None
-        
+        line_form.fields["vt"].initial = None
+
         calculation_form = CalculationFactorsForm()
         submodes_form1 = SubmodesConfigurationForm(prefix="half_set1")
         submodes_form2 = SubmodesConfigurationForm(prefix="half_set2")
@@ -81,7 +80,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         half_set2_topology_display = None
         half_set1_submodes = None
         half_set2_submodes = None
-        
+
         # Если выбрана ЛЭП, устанавливаем начальные значения для формы
         if line_id:
             try:
@@ -89,19 +88,22 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 if project_name:
                     line_query = line_query.filter(project_name=project_name)
                 line = line_query.first()
-                
+
                 # Если у линии есть ТН, устанавливаем его в форме
                 if line and line.vt:
-                    line_form.fields['vt'].initial = line.vt
+                    line_form.fields["vt"].initial = line.vt
                 # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
                 elif line and line.voltage_level:
                     from core.models import VoltageTransformer
+
                     line_voltage_int = int(float(line.voltage_level))
                     # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
                     # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
-                    vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+                    vt = VoltageTransformer.objects.filter(
+                        primary_voltage=line_voltage_int
+                    ).first()
                     if vt:
-                        line_form.fields['vt'].initial = vt
+                        line_form.fields["vt"].initial = vt
             except Line.DoesNotExist:
                 pass
 
@@ -113,7 +115,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     line_query = line_query.filter(project_name=project_name)
                 line = line_query.get()
                 protection_half_sets = list(line.protection_half_sets.all())
-                
+
                 # Проверяем наличие полукомплектов защиты
                 if len(protection_half_sets) < 2:
                     # Очищаем сессию для этой линии, так как нет полукомплектов
@@ -126,7 +128,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                         f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
                         f"Найдено: {len(protection_half_sets)}, требуется: 2. "
                         f"Пожалуйста, создайте полукомплекты защиты с помощью команды: "
-                        f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}"
+                        f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}",
                     )
                     # Сбрасываем line_id, чтобы не пытаться загружать данные для этой линии
                     line_id = None
@@ -135,12 +137,16 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     half_set1 = protection_half_sets[0]
                     half_set2 = protection_half_sets[1]
                     protection_device = half_set1.protection_device
-                    
+
                     # Получаем методику с учетом напряжения ЛЭП
                     if protection_device and line:
-                        methodology = protection_device.get_methodology_by_voltage(line.voltage_level)
+                        methodology = protection_device.get_methodology_by_voltage(
+                            line.voltage_level
+                        )
                     else:
-                        methodology = protection_device.methodology if protection_device else None
+                        methodology = (
+                            protection_device.methodology if protection_device else None
+                        )
             except (Line.DoesNotExist, IndexError):
                 # Если линия не найдена или нет полукомплектов, очищаем сессию
                 request.session.pop("line_id", None)
@@ -149,58 +155,66 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 request.session.pop("line_data", None)
                 line_id = None
                 line = None
-        
-        # Получаем данные для отображения из сессии
-        half_set1_topology_display = request.session.get(
-            "half_set1_topology_display"
+
+            # Получаем данные для отображения из сессии
+            half_set1_topology_display = request.session.get(
+                "half_set1_topology_display"
+            )
+            half_set2_topology_display = request.session.get(
+                "half_set2_topology_display"
+            )
+            # Получаем подрежимы из сессии
+            half_set1_submodes = request.session.get("half_set1_submodes")
+            half_set2_submodes = request.session.get("half_set2_submodes")
+
+        print(
+            f"[DEBUG] Подрежимы из сессии - half_set1: {half_set1_submodes is not None}, half_set2: {half_set2_submodes is not None}"
         )
-        half_set2_topology_display = request.session.get(
-            "half_set2_topology_display"
-        )
-        # Получаем подрежимы из сессии
-        half_set1_submodes = request.session.get("half_set1_submodes")
-        half_set2_submodes = request.session.get("half_set2_submodes")
-        
-        print(f"[DEBUG] Подрежимы из сессии - half_set1: {half_set1_submodes is not None}, half_set2: {half_set2_submodes is not None}")
-        
+
         # Если подрежимы отсутствуют в сессии, пытаемся загрузить из БД
         if not half_set1_submodes and half_set1:
             try:
                 from calculation.models import HalfSetSubmode
+
                 db_submodes = HalfSetSubmode.objects.filter(
                     protection_half_set=half_set1
-                ).order_by('id')
+                ).order_by("id")
                 if db_submodes.exists():
                     half_set1_submodes = [
                         {
-                            'submode_name': s.submode_name,
-                            'submode_elements': s.submode_elements
+                            "submode_name": s.submode_name,
+                            "submode_elements": s.submode_elements,
                         }
                         for s in db_submodes
                     ]
                     # Сохраняем в сессию для последующих запросов
                     request.session["half_set1_submodes"] = half_set1_submodes
             except Exception as e:
-                print(f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set1: {e}")
-        
+                print(
+                    f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set1: {e}"
+                )
+
         if not half_set2_submodes and half_set2:
             try:
                 from calculation.models import HalfSetSubmode
+
                 db_submodes = HalfSetSubmode.objects.filter(
                     protection_half_set=half_set2
-                ).order_by('id')
+                ).order_by("id")
                 if db_submodes.exists():
                     half_set2_submodes = [
                         {
-                            'submode_name': s.submode_name,
-                            'submode_elements': s.submode_elements
+                            "submode_name": s.submode_name,
+                            "submode_elements": s.submode_elements,
                         }
                         for s in db_submodes
                     ]
                     # Сохраняем в сессию для последующих запросов
                     request.session["half_set2_submodes"] = half_set2_submodes
             except Exception as e:
-                print(f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set2: {e}")
+                print(
+                    f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set2: {e}"
+                )
 
         line_data = request.session.get("line_data")
 
@@ -208,43 +222,54 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         # Пытаемся получить топологию из сессии или БД
         half_set1_topology = request.session.get("half_set1_topology")
         half_set2_topology = request.session.get("half_set2_topology")
-        
+
         # Если нет в сессии, пытаемся получить из БД
         if not half_set1_topology and half_set1:
             try:
                 topology_service1 = TopologyAnalysisService(half_set1)
-                half_set1_topology = topology_service1.get_half_set_topology(app=None, force_refresh=False)
+                half_set1_topology = topology_service1.get_half_set_topology(
+                    app=None, force_refresh=False
+                )
                 request.session["half_set1_topology"] = half_set1_topology
             except (ModuleNotFoundError, RuntimeError):
                 pass
-        
+
         if not half_set2_topology and half_set2:
             try:
                 topology_service2 = TopologyAnalysisService(half_set2)
-                half_set2_topology = topology_service2.get_half_set_topology(app=None, force_refresh=False)
+                half_set2_topology = topology_service2.get_half_set_topology(
+                    app=None, force_refresh=False
+                )
                 request.session["half_set2_topology"] = half_set2_topology
             except (ModuleNotFoundError, RuntimeError):
                 pass
-        
+
         # Преобразуем топологии для отображения, если они есть
         if half_set1_topology:
-            half_set1_topology_display = self.process_half_set_topology(half_set1_topology)
+            half_set1_topology_display = self.process_half_set_topology(
+                half_set1_topology
+            )
             request.session["half_set1_topology_display"] = half_set1_topology_display
         else:
-            half_set1_topology_display = request.session.get("half_set1_topology_display")
-        
+            half_set1_topology_display = request.session.get(
+                "half_set1_topology_display"
+            )
+
         if half_set2_topology:
-            half_set2_topology_display = self.process_half_set_topology(half_set2_topology)
+            half_set2_topology_display = self.process_half_set_topology(
+                half_set2_topology
+            )
             request.session["half_set2_topology_display"] = half_set2_topology_display
         else:
-            half_set2_topology_display = request.session.get("half_set2_topology_display")
+            half_set2_topology_display = request.session.get(
+                "half_set2_topology_display"
+            )
         if (
             half_set1_topology
             and half_set2_topology
             and half_set1_topology_display
             and half_set2_topology_display
         ):
-
             half_set1_max_outages = (len(half_set1_topology) + 1) // 2
             half_set2_max_outages = (len(half_set2_topology) + 1) // 2
 
@@ -284,28 +309,40 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         branch_substations = []
         if line:
             # Получаем все активные ответвления
-            branches = line.branches.filter(is_active=True).select_related('substation').order_by('id')
-            
+            branches = (
+                line.branches.filter(is_active=True)
+                .select_related("substation")
+                .order_by("id")
+            )
+
             for branch in branches:
                 if branch.substation:
                     # Используем pf_name или строковое представление подстанции
-                    substation_name = branch.substation.pf_name or str(branch.substation)
+                    substation_name = branch.substation.pf_name or str(
+                        branch.substation
+                    )
                     branch_substations.append(substation_name)
                 elif branch.pf_name_substation:
                     branch_substations.append(branch.pf_name_substation)
-            
+
             # Если ответвлений нет, но есть pf_name, попробуем обновить ответвления из PowerFactory
             # Это может быть полезно для параллельных линий, где ответвления могут быть не сохранены
             if not branch_substations and line.pf_name:
                 try:
-                    project_name = request.session.get('pf_project_name')
+                    project_name = request.session.get("pf_project_name")
                     app = self.pf_manager.get_application(project_name=project_name)
                     line.update_branches_from_pf(app)
                     # Повторно получаем ответвления после обновления
-                    branches = line.branches.filter(is_active=True).select_related('substation').order_by('id')
+                    branches = (
+                        line.branches.filter(is_active=True)
+                        .select_related("substation")
+                        .order_by("id")
+                    )
                     for branch in branches:
                         if branch.substation:
-                            substation_name = branch.substation.pf_name or str(branch.substation)
+                            substation_name = branch.substation.pf_name or str(
+                                branch.substation
+                            )
                             branch_substations.append(substation_name)
                         elif branch.pf_name_substation:
                             branch_substations.append(branch.pf_name_substation)
@@ -315,7 +352,9 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
         # Получаем методику с учетом напряжения ЛЭП, если еще не получена
         if protection_device and line and not methodology:
-            methodology = protection_device.get_methodology_by_voltage(line.voltage_level)
+            methodology = protection_device.get_methodology_by_voltage(
+                line.voltage_level
+            )
         elif protection_device and not methodology:
             methodology = protection_device.methodology
 
@@ -327,148 +366,178 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             # Если ответвлений нет в БД, но есть branch_substations, значит они есть
             if not has_branches and branch_substations:
                 has_branches = True
-        
+
         # Подготавливаем данные для отображения всех органов и их коэффициентов
         # Группируем органы по типам ЛЭП
         organs_by_line_type = {
-            'Основные органы': [
+            "Основные органы": [
                 # Токовые органы
-                'IЛ БЛОК', 'IЛ ОТКЛ',
-                'I2 БЛОК', 'I2 ОТКЛ',
-                '3I0 БЛОК', '3I0 ОТКЛ',  # Не важны, но важны на ЛЭП с ответвлениями
+                "IЛ БЛОК",
+                "IЛ ОТКЛ",
+                "I2 БЛОК",
+                "I2 ОТКЛ",
+                "3I0 БЛОК",
+                "3I0 ОТКЛ",  # Не важны, но важны на ЛЭП с ответвлениями
                 # Органы по приращению тока
-                'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ',
+                "DI1 БЛОК",
+                "DI1 ОТКЛ",
+                "DI2 БЛОК",
+                "DI2 ОТКЛ",
                 # Напряженческие органы (необязательные)
-                'U2 БЛОК', 'U2 ОТКЛ',
+                "U2 БЛОК",
+                "U2 ОТКЛ",
                 # Дистанционный орган
-                'R ОТКЛ', 'X ОТКЛ',
+                "R ОТКЛ",
+                "X ОТКЛ",
                 # Управляющие органы
-                'K МАН',  # Коэффициент комбинированного фильтра
-                'УГОЛ БЛОК',  # Угол блокировки ОСФ
+                "K МАН",  # Коэффициент комбинированного фильтра
+                "УГОЛ БЛОК",  # Угол блокировки ОСФ
             ],
-            'Специальные органы': [
+            "Специальные органы": [
                 # Дистанционный орган защиты ответвлений
-                'R ОТВ', 'X ОТВ',
+                "R ОТВ",
+                "X ОТВ",
                 # Направленный орган мощности нулевой последовательности
-                'РТНП/3I0_M0', 'РННП/3U0_M0',
-            ]
+                "РТНП/3I0_M0",
+                "РННП/3U0_M0",
+            ],
         }
-        
+
         # Органы, которые можно включать/отключать
         # Для 3I0 - важны на ЛЭП с ответвлениями
         # Для DI1, DI2, U2 - можно включать/отключать на любой ЛЭП (необязательные органы)
         toggleable_organs = {
-            '3I0 БЛОК': {'important_with_branches': True, 'default_enabled': False},
-            '3I0 ОТКЛ': {'important_with_branches': True, 'default_enabled': False},
-            'DI1 БЛОК': {'important_with_branches': False, 'default_enabled': False},
-            'DI1 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
-            'DI2 БЛОК': {'important_with_branches': False, 'default_enabled': False},
-            'DI2 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
-            'U2 БЛОК': {'important_with_branches': False, 'default_enabled': False},
-            'U2 ОТКЛ': {'important_with_branches': False, 'default_enabled': False},
+            "3I0 БЛОК": {"important_with_branches": True, "default_enabled": False},
+            "3I0 ОТКЛ": {"important_with_branches": True, "default_enabled": False},
+            "DI1 БЛОК": {"important_with_branches": False, "default_enabled": False},
+            "DI1 ОТКЛ": {"important_with_branches": False, "default_enabled": False},
+            "DI2 БЛОК": {"important_with_branches": False, "default_enabled": False},
+            "DI2 ОТКЛ": {"important_with_branches": False, "default_enabled": False},
+            "U2 БЛОК": {"important_with_branches": False, "default_enabled": False},
+            "U2 ОТКЛ": {"important_with_branches": False, "default_enabled": False},
         }
-        
+
         # Словарь для отображения названий органов (если нужно изменить отображаемое название)
         organ_display_names = {
-            'K МАН': 'Орган манипуляции',
-            'УГОЛ БЛОК': 'Орган сравнения фаз'
+            "K МАН": "Орган манипуляции",
+            "УГОЛ БЛОК": "Орган сравнения фаз",
         }
-        
+
         # Получаем состояние включения/отключения органов из сессии
         enabled_organs = request.session.get("enabled_organs", {})
-        
+
         # Формируем структуру данных для отображения
         organs_data = {}
         calculation_factors = request.session.get("calculation_factors", {})
         for category, organ_names in organs_by_line_type.items():
             # Пропускаем категорию специальных органов, если нет ответвлений
-            if category == 'Специальные органы (используются ТОЛЬКО на ЛЭП С ответвлениями)' and not has_branches:
+            if (
+                category
+                == "Специальные органы (используются ТОЛЬКО на ЛЭП С ответвлениями)"
+                and not has_branches
+            ):
                 continue
-                
+
             organs_data[category] = []
             for organ_name in organ_names:
                 # Пропускаем специальные органы, если нет ответвлений
-                if organ_name in ['R ОТВ', 'X ОТВ', 'РТНП/3I0_M0', 'РННП/3U0_M0'] and not has_branches:
+                if (
+                    organ_name in ["R ОТВ", "X ОТВ", "РТНП/3I0_M0", "РННП/3U0_M0"]
+                    and not has_branches
+                ):
                     continue
-                
+
                 # Определяем состояние включения/отключения для переключаемых органов
                 is_enabled = True
                 if organ_name in toggleable_organs:
                     organ_config = toggleable_organs[organ_name]
                     # Если орган важен на ЛЭП с ответвлениями и они есть, включаем по умолчанию
-                    if organ_config['important_with_branches'] and has_branches:
+                    if organ_config["important_with_branches"] and has_branches:
                         is_enabled = enabled_organs.get(organ_name, True)
                     else:
-                        is_enabled = enabled_organs.get(organ_name, organ_config['default_enabled'])
-                    
+                        is_enabled = enabled_organs.get(
+                            organ_name, organ_config["default_enabled"]
+                        )
+
                 if organ_name in SETTINGS_CALCULATION_MAP:
                     organ_info = copy.deepcopy(SETTINGS_CALCULATION_MAP[organ_name])
                     # Используем отображаемое название, если оно есть, иначе оригинальное
-                    organ_info['name'] = organ_display_names.get(organ_name, organ_name)
+                    organ_info["name"] = organ_display_names.get(organ_name, organ_name)
                     # Сохраняем оригинальное название для идентификации
-                    organ_info['original_name'] = organ_name
+                    organ_info["original_name"] = organ_name
                     # Добавляем информацию о том, можно ли переключать орган
                     if organ_name in toggleable_organs:
-                        organ_info['toggleable'] = True
-                        organ_info['enabled'] = is_enabled
+                        organ_info["toggleable"] = True
+                        organ_info["enabled"] = is_enabled
                     # Получаем текущие значения коэффициентов из сессии, если они есть
-                    if organ_info.get('calculation_factors'):
-                        for factor_key, factor_data in organ_info['calculation_factors'].items():
+                    if organ_info.get("calculation_factors"):
+                        for factor_key, factor_data in organ_info[
+                            "calculation_factors"
+                        ].items():
                             # Всегда устанавливаем current_value: либо из сессии, либо из default_value
                             if factor_key in calculation_factors:
                                 # Используем значение из сессии
-                                factor_data['current_value'] = calculation_factors[factor_key]
+                                factor_data["current_value"] = calculation_factors[
+                                    factor_key
+                                ]
                             else:
                                 # Используем default_value как значение для отображения
                                 # Убеждаемся, что default_value существует и не None
-                                default_val = factor_data.get('default_value')
+                                default_val = factor_data.get("default_value")
                                 # Всегда устанавливаем current_value равным default_value
                                 # Если default_value отсутствует, оставляем None (шаблон обработает)
-                                factor_data['current_value'] = default_val
+                                factor_data["current_value"] = default_val
                     organs_data[category].append(organ_info)
 
         # Получаем все методики для отображения в модальном окне
         from core.models import MethodologyDocument
-        all_methodologies = MethodologyDocument.objects.all().order_by('-created_at') if MethodologyDocument else []
-        
+
+        all_methodologies = (
+            MethodologyDocument.objects.all().order_by("-created_at")
+            if MethodologyDocument
+            else []
+        )
+
         # Группируем методики по производителям
         methodologies_by_manufacturer = {
-            'ЭКРА': [],
-            'Релематика': [],
-            'Бреслер': [],
-            'Другие': []
+            "ЭКРА": [],
+            "Релематика": [],
+            "Бреслер": [],
+            "Другие": [],
         }
-        
+
         for meth in all_methodologies:
             name_file_lower = meth.name_file.lower()
             # Проверяем путь файла - если он содержит папку производителя, используем её
             # Формат: methodologies/ЭКРА/файл.pdf или methodologies/Релематика/файл.pdf
-            path_parts = name_file_lower.replace('\\', '/').split('/')
-            
+            path_parts = name_file_lower.replace("\\", "/").split("/")
+
             # Ищем папку производителя в пути (обычно это второй элемент после 'methodologies')
-            if len(path_parts) >= 2 and path_parts[0] == 'methodologies':
+            if len(path_parts) >= 2 and path_parts[0] == "methodologies":
                 manufacturer_in_path = path_parts[1]
-                if 'экра' in manufacturer_in_path:
-                    methodologies_by_manufacturer['ЭКРА'].append(meth)
-                elif 'релематика' in manufacturer_in_path:
-                    methodologies_by_manufacturer['Релематика'].append(meth)
-                elif 'бреслер' in manufacturer_in_path or 'нпп' in manufacturer_in_path:
-                    methodologies_by_manufacturer['Бреслер'].append(meth)
+                if "экра" in manufacturer_in_path:
+                    methodologies_by_manufacturer["ЭКРА"].append(meth)
+                elif "релематика" in manufacturer_in_path:
+                    methodologies_by_manufacturer["Релематика"].append(meth)
+                elif "бреслер" in manufacturer_in_path or "нпп" in manufacturer_in_path:
+                    methodologies_by_manufacturer["Бреслер"].append(meth)
                 else:
-                    methodologies_by_manufacturer['Другие'].append(meth)
+                    methodologies_by_manufacturer["Другие"].append(meth)
             else:
                 # Для обратной совместимости: проверяем имя файла, если путь не содержит папку
-                if 'экра' in name_file_lower:
-                    methodologies_by_manufacturer['ЭКРА'].append(meth)
-                elif 'релематика' in name_file_lower:
-                    methodologies_by_manufacturer['Релематика'].append(meth)
-                elif 'бреслер' in name_file_lower or 'нпп' in name_file_lower:
-                    methodologies_by_manufacturer['Бреслер'].append(meth)
+                if "экра" in name_file_lower:
+                    methodologies_by_manufacturer["ЭКРА"].append(meth)
+                elif "релематика" in name_file_lower:
+                    methodologies_by_manufacturer["Релематика"].append(meth)
+                elif "бреслер" in name_file_lower or "нпп" in name_file_lower:
+                    methodologies_by_manufacturer["Бреслер"].append(meth)
                 else:
-                    methodologies_by_manufacturer['Другие'].append(meth)
-        
+                    methodologies_by_manufacturer["Другие"].append(meth)
+
         # Удаляем пустые категории
-        methodologies_by_manufacturer = {k: v for k, v in methodologies_by_manufacturer.items() if v}
+        methodologies_by_manufacturer = {
+            k: v for k, v in methodologies_by_manufacturer.items() if v
+        }
 
         return render(
             request,
@@ -514,7 +583,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             return self.calculate_settings(request)
 
         return redirect("calculation")
-    
+
     def select_project(self, request):
         """
         Обрабатывает выбор проекта PowerFactory пользователем и синхронизирует данные.
@@ -525,51 +594,53 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             if self.pf_manager.check_project_available(project_name):
                 try:
                     # Сохраняем в сессию
-                    request.session['pf_project_name'] = project_name
-                    
+                    request.session["pf_project_name"] = project_name
+
                     # Проверяем, нужна ли синхронизация
                     sync_service = ProjectSyncService(project_name=project_name)
-                    
+
                     if sync_service.needs_sync():
                         # Запускаем синхронизацию проекта с БД
                         messages.info(
-                            request, 
+                            request,
                             f"Начинается синхронизация проекта '{project_name}' с базой данных. "
-                            "Это может занять некоторое время..."
+                            "Это может занять некоторое время...",
                         )
                         # Выполняем синхронизацию
                         results = sync_service.sync_project(force_full=False)
                     else:
                         # Данные уже есть, только обновляем
                         messages.info(
-                            request, 
-                            f"Обновление данных проекта '{project_name}'..."
+                            request, f"Обновление данных проекта '{project_name}'..."
                         )
                         results = sync_service.sync_project(force_full=False)
-                    
+
                     # Формируем сообщение о результатах
-                    if results.get('skipped'):
-                        messages.info(request, results.get('message', 'Данные проекта уже актуальны.'))
+                    if results.get("skipped"):
+                        messages.info(
+                            request,
+                            results.get("message", "Данные проекта уже актуальны."),
+                        )
                     else:
                         total_errors = (
-                            results['lines']['errors'] + 
-                            results['substations']['errors'] + 
-                            results['branches']['errors'] + 
-                            results['half_sets']['errors'] + 
-                            results['topology']['errors']
+                            results["lines"]["errors"]
+                            + results["substations"]["errors"]
+                            + results["branches"]["errors"]
+                            + results["half_sets"]["errors"]
+                            + results["topology"]["errors"]
                         )
-                        
+
                         if total_errors == 0:
                             result_msg = (
                                 f"Проект '{project_name}' успешно обновлен! "
                                 f"Линии: {results['lines']['created']} создано, {results['lines']['updated']} обновлено. "
                                 f"Подстанции: {results['substations']['created']} создано, {results['substations']['updated']} обновлено. "
                             )
-                            if results['branches']['filled'] > 0:
+                            if results["branches"]["filled"] > 0:
                                 result_msg += f"Ответвления: {results['branches']['filled']} заполнено. "
-                            if results['half_sets']['created'] > 0:
+                            if results["half_sets"]["created"] > 0:
                                 result_msg += f"Полукомплекты: {results['half_sets']['created']} создано. "
-                            if results['topology']['analyzed'] > 0:
+                            if results["topology"]["analyzed"] > 0:
                                 result_msg += f"Топология: {results['topology']['analyzed']} проанализировано."
                             messages.success(request, result_msg)
                         else:
@@ -580,28 +651,27 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                                 f"Обнаружено ошибок: {total_errors}."
                             )
                             messages.warning(request, result_msg)
-                    
+
                 except Exception as e:
                     messages.error(
-                        request, 
-                        f"Ошибка при синхронизации проекта '{project_name}': {str(e)}"
+                        request,
+                        f"Ошибка при синхронизации проекта '{project_name}': {str(e)}",
                     )
                     # Оставляем проект в сессии, но предупреждаем об ошибке
             else:
                 messages.error(request, f"Проект '{project_name}' недоступен")
                 # Очищаем сессию, если проект недоступен
-                request.session.pop('pf_project_name', None)
+                request.session.pop("pf_project_name", None)
         else:
             messages.error(request, "Не выбран проект")
-        
+
         return redirect("calculation")
 
     def select_line(self, request):
         # request.session.clear()
-        project_name = request.session.get('pf_project_name')
+        project_name = request.session.get("pf_project_name")
         form = LineSelectionForm(request.POST, project_name=project_name)
         if form.is_valid():
-
             # Получаем выбранную ЛЭП с формы и сохраняем в сессию
             line = form.cleaned_data["line"]
             request.session["line_id"] = line.id
@@ -609,18 +679,21 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             # Сохраняем выбранные ТТ и ТН в модель Line
             ct = form.cleaned_data.get("ct")
             vt = form.cleaned_data.get("vt")
-            
-            # Если ТН не выбран пользователем, но у линии есть напряжение, 
+
+            # Если ТН не выбран пользователем, но у линии есть напряжение,
             # пытаемся найти подходящий ТН автоматически
             # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
             if not vt and line.voltage_level:
                 from core.models import VoltageTransformer
+
                 # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
                 line_voltage_int = int(float(line.voltage_level))
-                vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+                vt = VoltageTransformer.objects.filter(
+                    primary_voltage=line_voltage_int
+                ).first()
                 if vt:
                     line.vt = vt
-            
+
             if ct:
                 line.ct = ct
             if vt:
@@ -638,7 +711,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
                     f"Найдено: {len(protection_half_sets)}, требуется: 2. "
                     f"Пожалуйста, создайте полукомплекты защиты с помощью команды: "
-                    f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}"
+                    f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}",
                 )
                 return redirect("calculation")
 
@@ -652,7 +725,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
             try:
                 # Создаем COM-объект PowerFactory
-                project_name = request.session.get('pf_project_name')
+                project_name = request.session.get("pf_project_name")
                 app = self.pf_manager.get_application(project_name=project_name)
 
                 pf_line = get_pf_line(app, line.pf_name)
@@ -661,14 +734,17 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
                 # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
                 line.update_voltage_from_pf(app)
-                
+
                 # Если ТН еще не установлен, пытаемся найти подходящий по напряжению
                 # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
                 if not line.vt and line.voltage_level:
                     from core.models import VoltageTransformer
+
                     # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
                     line_voltage_int = int(float(line.voltage_level))
-                    vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+                    vt = VoltageTransformer.objects.filter(
+                        primary_voltage=line_voltage_int
+                    ).first()
                     if vt:
                         line.vt = vt
                         line.save()
@@ -678,15 +754,23 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 # Сначала пытаемся получить из БД, если нет - из PowerFactory
                 topology_service1 = TopologyAnalysisService(half_set1)
                 topology_service2 = TopologyAnalysisService(half_set2)
-                
+
                 # Пытаемся получить топологию из БД (без подключения к PF)
                 try:
-                    half_set1_topology = topology_service1.get_half_set_topology(app=None, force_refresh=False)
-                    half_set2_topology = topology_service2.get_half_set_topology(app=None, force_refresh=False)
+                    half_set1_topology = topology_service1.get_half_set_topology(
+                        app=None, force_refresh=False
+                    )
+                    half_set2_topology = topology_service2.get_half_set_topology(
+                        app=None, force_refresh=False
+                    )
                 except (ModuleNotFoundError, RuntimeError):
                     # Если нет в БД или PowerFactory недоступен, используем переданный app
-                    half_set1_topology = topology_service1.get_half_set_topology(app=app, force_refresh=False)
-                    half_set2_topology = topology_service2.get_half_set_topology(app=app, force_refresh=False)
+                    half_set1_topology = topology_service1.get_half_set_topology(
+                        app=app, force_refresh=False
+                    )
+                    half_set2_topology = topology_service2.get_half_set_topology(
+                        app=app, force_refresh=False
+                    )
 
                 # Освобождаем COM-объект
                 # print(app.GetAttributes())
@@ -704,12 +788,12 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 )
 
                 # Сохраняем топологии для отображения на странице в сессии
-                request.session["half_set1_topology_display"] = (
-                    half_set1_topology_display
-                )
-                request.session["half_set2_topology_display"] = (
-                    half_set2_topology_display
-                )
+                request.session[
+                    "half_set1_topology_display"
+                ] = half_set1_topology_display
+                request.session[
+                    "half_set2_topology_display"
+                ] = half_set2_topology_display
             except ModuleNotFoundError as e:
                 messages.error(request, str(e))
                 return redirect("calculation")
@@ -721,7 +805,6 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         submodes_form2 = SubmodesConfigurationForm(request.POST, prefix="half_set2")
 
         if submodes_form1.is_valid() and submodes_form2.is_valid():
-
             half_set1_submodes_data = submodes_form1.cleaned_data
             half_set2_submodes_data = submodes_form2.cleaned_data
 
@@ -733,31 +816,36 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
             # Получаем полукомплекты из сессии
             line_id = request.session.get("line_id")
-            project_name = request.session.get('pf_project_name')
+            project_name = request.session.get("pf_project_name")
             if line_id:
                 from core.models import Line
+
                 line_query = Line.objects.filter(id=line_id)
                 if project_name:
                     line_query = line_query.filter(project_name=project_name)
                 line = line_query.get()
                 protection_half_sets = line.protection_half_sets.all()
-                half_set1 = protection_half_sets[0] if len(protection_half_sets) > 0 else None
-                half_set2 = protection_half_sets[1] if len(protection_half_sets) > 1 else None
+                half_set1 = (
+                    protection_half_sets[0] if len(protection_half_sets) > 0 else None
+                )
+                half_set2 = (
+                    protection_half_sets[1] if len(protection_half_sets) > 1 else None
+                )
             else:
                 half_set1 = None
                 half_set2 = None
 
             half_set1_submodes = generate_half_set_submodes(
-                half_set1_topology, 
+                half_set1_topology,
                 half_set1_submodes_data,
                 protection_half_set=half_set1,
-                use_cache=True
+                use_cache=True,
             )
             half_set2_submodes = generate_half_set_submodes(
-                half_set2_topology, 
+                half_set2_topology,
                 half_set2_submodes_data,
                 protection_half_set=half_set2,
-                use_cache=True
+                use_cache=True,
             )
 
             print(half_set1_submodes)
@@ -770,68 +858,110 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 half_set1_submodes_list = []
                 for submode in half_set1_submodes:
                     if isinstance(submode, dict):
-                        half_set1_submodes_list.append({
-                            'submode_name': str(submode.get('submode_name', '')),
-                            'submode_elements': list(submode.get('submode_elements', []))
-                        })
+                        half_set1_submodes_list.append(
+                            {
+                                "submode_name": str(submode.get("submode_name", "")),
+                                "submode_elements": list(
+                                    submode.get("submode_elements", [])
+                                ),
+                            }
+                        )
                     else:
                         # Если это объект модели, преобразуем в словарь
-                        half_set1_submodes_list.append({
-                            'submode_name': str(getattr(submode, 'submode_name', '')),
-                            'submode_elements': list(getattr(submode, 'submode_elements', []))
-                        })
+                        half_set1_submodes_list.append(
+                            {
+                                "submode_name": str(
+                                    getattr(submode, "submode_name", "")
+                                ),
+                                "submode_elements": list(
+                                    getattr(submode, "submode_elements", [])
+                                ),
+                            }
+                        )
                 request.session["half_set1_submodes"] = half_set1_submodes_list
-                print(f"[DEBUG] Сохранено подрежимов для half_set1: {len(half_set1_submodes_list)}")
-            
+                print(
+                    f"[DEBUG] Сохранено подрежимов для half_set1: {len(half_set1_submodes_list)}"
+                )
+
             if half_set2_submodes:
                 # Преобразуем в список словарей, если это необходимо
                 half_set2_submodes_list = []
                 for submode in half_set2_submodes:
                     if isinstance(submode, dict):
-                        half_set2_submodes_list.append({
-                            'submode_name': str(submode.get('submode_name', '')),
-                            'submode_elements': list(submode.get('submode_elements', []))
-                        })
+                        half_set2_submodes_list.append(
+                            {
+                                "submode_name": str(submode.get("submode_name", "")),
+                                "submode_elements": list(
+                                    submode.get("submode_elements", [])
+                                ),
+                            }
+                        )
                     else:
                         # Если это объект модели, преобразуем в словарь
-                        half_set2_submodes_list.append({
-                            'submode_name': str(getattr(submode, 'submode_name', '')),
-                            'submode_elements': list(getattr(submode, 'submode_elements', []))
-                        })
+                        half_set2_submodes_list.append(
+                            {
+                                "submode_name": str(
+                                    getattr(submode, "submode_name", "")
+                                ),
+                                "submode_elements": list(
+                                    getattr(submode, "submode_elements", [])
+                                ),
+                            }
+                        )
                 request.session["half_set2_submodes"] = half_set2_submodes_list
-                print(f"[DEBUG] Сохранено подрежимов для half_set2: {len(half_set2_submodes_list)}")
-            
+                print(
+                    f"[DEBUG] Сохранено подрежимов для half_set2: {len(half_set2_submodes_list)}"
+                )
+
             # Явно сохраняем сессию
             request.session.modified = True
-            print(f"[DEBUG] Сессия сохранена. half_set1_submodes в сессии: {request.session.get('half_set1_submodes') is not None}")
-            print(f"[DEBUG] Сессия сохранена. half_set2_submodes в сессии: {request.session.get('half_set2_submodes') is not None}")
+            print(
+                f"[DEBUG] Сессия сохранена. half_set1_submodes в сессии: {request.session.get('half_set1_submodes') is not None}"
+            )
+            print(
+                f"[DEBUG] Сессия сохранена. half_set2_submodes в сессии: {request.session.get('half_set2_submodes') is not None}"
+            )
 
-            messages.success(request, f"Подрежимы успешно сгенерированы. Полукомплект 1: {len(half_set1_submodes) if half_set1_submodes else 0}, Полукомплект 2: {len(half_set2_submodes) if half_set2_submodes else 0}.")
+            messages.success(
+                request,
+                f"Подрежимы успешно сгенерированы. Полукомплект 1: {len(half_set1_submodes) if half_set1_submodes else 0}, Полукомплект 2: {len(half_set2_submodes) if half_set2_submodes else 0}.",
+            )
 
         return redirect("calculation")
 
     def save_calculation_factors(self, request):
         # Собираем все коэффициенты из POST запроса
         calculation_factors = {}
-        
+
         # Сначала получаем данные из стандартной формы
         form = CalculationFactorsForm(request.POST)
         if form.is_valid():
             calculation_factors.update(form.cleaned_data)
-        
+
         # Сохраняем состояние включения/отключения органов
         enabled_organs = {}
-        toggleable_organs_list = ['3I0 БЛОК', '3I0 ОТКЛ', 'DI1 БЛОК', 'DI1 ОТКЛ', 'DI2 БЛОК', 'DI2 ОТКЛ', 'U2 БЛОК', 'U2 ОТКЛ']
+        toggleable_organs_list = [
+            "3I0 БЛОК",
+            "3I0 ОТКЛ",
+            "DI1 БЛОК",
+            "DI1 ОТКЛ",
+            "DI2 БЛОК",
+            "DI2 ОТКЛ",
+            "U2 БЛОК",
+            "U2 ОТКЛ",
+        ]
         for organ_name in toggleable_organs_list:
             # Проверяем, есть ли чекбокс для этого органа в POST
-            enabled_organs[organ_name] = request.POST.get(f'organ_enabled_{organ_name}', 'off') == 'on'
-        
+            enabled_organs[organ_name] = (
+                request.POST.get(f"organ_enabled_{organ_name}", "off") == "on"
+            )
+
         request.session["enabled_organs"] = enabled_organs
-        
+
         # Затем собираем все остальные коэффициенты из SETTINGS_CALCULATION_MAP
         for organ_name, organ_data in SETTINGS_CALCULATION_MAP.items():
-            if organ_data.get('calculation_factors'):
-                for factor_key in organ_data['calculation_factors'].keys():
+            if organ_data.get("calculation_factors"):
+                for factor_key in organ_data["calculation_factors"].keys():
                     # Получаем значение из POST, если оно есть
                     if factor_key in request.POST:
                         try:
@@ -839,40 +969,57 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                             calculation_factors[factor_key] = value
                         except (ValueError, TypeError):
                             # Если не удалось преобразовать, используем значение по умолчанию
-                            default_value = organ_data['calculation_factors'][factor_key].get('default_value')
+                            default_value = organ_data["calculation_factors"][
+                                factor_key
+                            ].get("default_value")
                             if default_value is not None:
                                 calculation_factors[factor_key] = default_value
-        
+
+        # Логируем выбор ДДТН
+        if "load_current" in calculation_factors:
+            load_current_value = calculation_factors["load_current"]
+            print(
+                f"[DEBUG] Пользователь выбрал ДДТН (длительно допустимый рабочий ток): {load_current_value} А"
+            )
+
         print(f"[DEBUG] Сохраненные коэффициенты: {calculation_factors}")
         request.session["calculation_factors"] = calculation_factors
         request.session.modified = True
-        messages.success(request, f"Коэффициенты успешно сохранены. Всего сохранено: {len(calculation_factors)} коэффициентов.")
+        messages.success(
+            request,
+            f"Коэффициенты успешно сохранены. Всего сохранено: {len(calculation_factors)} коэффициентов.",
+        )
         return redirect("calculation")
 
     def toggle_organ(self, request):
         """Переключает состояние органа (включен/выключен) через AJAX."""
-        organ_name = request.POST.get('organ_name')
-        enabled = request.POST.get('enabled') == 'on'
-        
+        organ_name = request.POST.get("organ_name")
+        enabled = request.POST.get("enabled") == "on"
+
         if not organ_name:
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return JsonResponse({'success': False, 'message': 'Не указано название органа'}, status=400)
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return JsonResponse(
+                    {"success": False, "message": "Не указано название органа"},
+                    status=400,
+                )
             return redirect("calculation")
-        
+
         # Получаем текущее состояние органов из сессии
         enabled_organs = request.session.get("enabled_organs", {})
         enabled_organs[organ_name] = enabled
         request.session["enabled_organs"] = enabled_organs
         request.session.modified = True
-        
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return JsonResponse({
-                'success': True,
-                'message': f'Орган {organ_name} {"включен" if enabled else "отключен"}',
-                'organ_name': organ_name,
-                'enabled': enabled
-            })
-        
+
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": f'Орган {organ_name} {"включен" if enabled else "отключен"}',
+                    "organ_name": organ_name,
+                    "enabled": enabled,
+                }
+            )
+
         return redirect("calculation")
 
     def calculate_settings(self, request):
@@ -882,13 +1029,13 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         calculation_factors = request.session.get("calculation_factors")
         line_id = request.session.get("line_id", None)
 
-        project_name = request.session.get('pf_project_name')
+        project_name = request.session.get("pf_project_name")
         line_query = Line.objects.filter(pk=line_id)
         if project_name:
             line_query = line_query.filter(project_name=project_name)
         line = line_query.get()
         protection_half_sets = list(line.protection_half_sets.all())
-        
+
         # Проверяем наличие полукомплектов защиты
         if len(protection_half_sets) < 2:
             messages.error(
@@ -896,10 +1043,10 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
                 f"Найдено: {len(protection_half_sets)}, требуется: 2. "
                 f"Пожалуйста, создайте полукомплекты защиты с помощью команды: "
-                f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}"
+                f"python manage.py create_protection_half_sets_for_all_lines --line-id {line.id}",
             )
             return redirect("calculation")
-        
+
         half_set1 = protection_half_sets[0]
         half_set2 = protection_half_sets[1]
 
@@ -907,10 +1054,31 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         fault_service = FaultCalculationService()
 
         # Регистрируем расчет
+        # Создаем новый CalculationMeta для каждого расчета
+        print(f"[DEBUG] ========== Создание нового расчета ==========")
+        print(f"[DEBUG] ЛЭП: {line} (ID: {line.id})")
+        print(f"[DEBUG] Пользователь: {request.user}")
+
+        # Проверяем, есть ли старые расчеты для этой ЛЭП
+        old_calculations = CalculationMeta.objects.filter(line=line).order_by(
+            "-calculation_date"
+        )
+        if old_calculations.exists():
+            print(
+                f"[DEBUG] Найдено старых расчетов для этой ЛЭП: {old_calculations.count()}"
+            )
+            print(
+                f"[DEBUG] Последний старый расчет: ID={old_calculations.first().id}, Дата={old_calculations.first().calculation_date}"
+            )
+
         calculation_meta = CalculationMeta.objects.create(line=line, user=request.user)
+        print(
+            f"[DEBUG] ✓ Создан новый расчет: ID={calculation_meta.id}, ЛЭП={line}, Дата={calculation_meta.calculation_date}"
+        )
+        print(f"[DEBUG] ============================================")
 
         # Создаем COM-объект PowerFactory
-        project_name = request.session.get('pf_project_name')
+        project_name = request.session.get("pf_project_name")
         app = self.pf_manager.get_application(project_name=project_name)
 
         # Выполняем расчет токов КЗ на противоположной стороне
@@ -928,15 +1096,15 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 app, half_set1, half_set1_submodes, calculation_meta
             )
             fault_service.perform_branch_fault_calculation(
-            app, half_set2, half_set2_submodes, calculation_meta
-        )
+                app, half_set2, half_set2_submodes, calculation_meta
+            )
 
         # Освобождаем COM-объект
         del app
 
         # Получаем состояние включения/отключения органов из сессии
         enabled_organs = request.session.get("enabled_organs", {})
-        
+
         # Выполняем расчет параметров настройки ДФЗ
         calculation_service = SettingsCalculationService(
             calculation_meta, calculation_factors, enabled_organs
@@ -965,22 +1133,24 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 def filter_lines_ajax(request):
     """AJAX endpoint для фильтрации ЛЭП по типу и напряжению."""
     from decimal import Decimal
-    
-    line_type_id = request.GET.get('line_type_id')
-    voltage = request.GET.get('voltage')
-    
+
+    line_type_id = request.GET.get("line_type_id")
+    voltage = request.GET.get("voltage")
+
     # Получаем проект из сессии для фильтрации
-    project_name = request.GET.get('project_name') or request.session.get('pf_project_name')
-    
+    project_name = request.GET.get("project_name") or request.session.get(
+        "pf_project_name"
+    )
+
     queryset = Line.objects.all()
     if project_name:
         queryset = queryset.filter(project_name=project_name)
-    queryset = queryset.order_by('dispatch_name')
-    
+    queryset = queryset.order_by("dispatch_name")
+
     # Фильтруем по типу
     if line_type_id:
         queryset = queryset.filter(line_type_id=line_type_id)
-    
+
     # Фильтруем по напряжению (если пустое значение - не фильтруем, показываем все)
     if voltage:
         try:
@@ -988,11 +1158,11 @@ def filter_lines_ajax(request):
             queryset = queryset.filter(voltage_level=voltage_decimal)
         except (ValueError, TypeError, Exception):
             pass
-    
+
     # Формируем список для JSON
-    lines = [{'id': line.id, 'name': line.dispatch_name} for line in queryset]
-    
-    return JsonResponse({'lines': lines})
+    lines = [{"id": line.id, "name": line.dispatch_name} for line in queryset]
+
+    return JsonResponse({"lines": lines})
 
 
 @require_http_methods(["GET"])
@@ -1000,52 +1170,64 @@ def filter_lines_ajax(request):
 def get_line_vt_ajax(request):
     """AJAX endpoint для получения подходящего ТН для выбранной ЛЭП."""
     from core.models import VoltageTransformer
-    
-    line_id = request.GET.get('line_id')
+
+    line_id = request.GET.get("line_id")
     if not line_id:
-        return JsonResponse({'success': False, 'message': 'Не указан ID ЛЭП'}, status=400)
-    
+        return JsonResponse(
+            {"success": False, "message": "Не указан ID ЛЭП"}, status=400
+        )
+
     try:
         line = Line.objects.get(pk=line_id)
-        
+
         # Если у линии уже есть ТН, возвращаем его
         if line.vt:
-            return JsonResponse({
-                'success': True,
-                'vt_id': line.vt.id,
-                'vt_name': str(line.vt),
-                'voltage_level': float(line.voltage_level) if line.voltage_level else None
-            })
-        
+            return JsonResponse(
+                {
+                    "success": True,
+                    "vt_id": line.vt.id,
+                    "vt_name": str(line.vt),
+                    "voltage_level": float(line.voltage_level)
+                    if line.voltage_level
+                    else None,
+                }
+            )
+
         # Если у линии есть напряжение, ищем подходящий ТН
         if line.voltage_level:
             line_voltage_int = int(float(line.voltage_level))
-            vt = VoltageTransformer.objects.filter(primary_voltage=line_voltage_int).first()
+            vt = VoltageTransformer.objects.filter(
+                primary_voltage=line_voltage_int
+            ).first()
             if vt:
-                return JsonResponse({
-                    'success': True,
-                    'vt_id': vt.id,
-                    'vt_name': str(vt),
-                    'voltage_level': float(line.voltage_level)
-                })
-        
-        return JsonResponse({
-            'success': False,
-            'message': 'Не найдено подходящего ТН для данной ЛЭП',
-            'voltage_level': float(line.voltage_level) if line.voltage_level else None
-        })
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "vt_id": vt.id,
+                        "vt_name": str(vt),
+                        "voltage_level": float(line.voltage_level),
+                    }
+                )
+
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "Не найдено подходящего ТН для данной ЛЭП",
+                "voltage_level": float(line.voltage_level)
+                if line.voltage_level
+                else None,
+            }
+        )
     except Line.DoesNotExist:
-        return JsonResponse({'success': False, 'message': 'ЛЭП не найдена'}, status=404)
+        return JsonResponse({"success": False, "message": "ЛЭП не найдена"}, status=404)
     except Exception as e:
-        return JsonResponse({'success': False, 'message': str(e)}, status=500)
+        return JsonResponse({"success": False, "message": str(e)}, status=500)
 
 
 class TestView(View):
-
     template_name = "calculation/calculation_test.html"
 
     def get(self, request):
-
         coefficients = request.session.get(
             "coefficients", {"coefficient1": 1.3, "coefficient2": 1.2}
         )
@@ -1058,7 +1240,6 @@ class TestView(View):
         )
 
     def post(self, request):
-
         action = request.POST.get("action")
 
         if action == "save":
@@ -1086,6 +1267,81 @@ def calculation_results(request, calculation_meta_id):
     results = SettingsCalculation.objects.filter(
         calculation_meta=calculation_meta
     ).order_by("protection_half_set")
+
+    # Логируем для диагностики
+    print(f"[DEBUG] ========== Отображение результатов расчета ==========")
+    print(f"[DEBUG] Запрошен calculation_meta_id: {calculation_meta_id}")
+    print(
+        f"[DEBUG] Найден CalculationMeta: ID={calculation_meta.id}, ЛЭП={calculation_meta.line}, Дата={calculation_meta.calculation_date}"
+    )
+    print(f"[DEBUG] Найдено результатов: {results.count()}")
+
+    # Проверяем, есть ли результаты для других расчетов (для диагностики)
+    all_results_count = SettingsCalculation.objects.filter(
+        calculation_meta__line=calculation_meta.line
+    ).count()
+    print(
+        f"[DEBUG] Всего результатов для ЛЭП {calculation_meta.line}: {all_results_count}"
+    )
+
+    # Дополнительная проверка: логируем первые несколько результатов для проверки
+    if results.exists():
+        print(f"[DEBUG] Первые 3 результата:")
+        for i, result in enumerate(results[:3], 1):
+            print(
+                f"[DEBUG]   {i}. Полукомплект: {result.protection_half_set}, Орган: {result.component}, Значение: {result.result_value}, CalculationMeta ID: {result.calculation_meta.id}"
+            )
+
+        # Проверяем, все ли результаты принадлежат запрошенному calculation_meta
+        wrong_results = results.exclude(calculation_meta=calculation_meta)
+        if wrong_results.exists():
+            print(
+                f"[ERROR] ОШИБКА: Найдено {wrong_results.count()} результатов с неправильным CalculationMeta!"
+            )
+            for wrong_result in wrong_results[:3]:
+                print(
+                    f"[ERROR]   Неправильный результат: ID={wrong_result.id}, CalculationMeta ID={wrong_result.calculation_meta.id} (ожидался {calculation_meta.id})"
+                )
+        else:
+            print(
+                f"[DEBUG] ✓ Все результаты принадлежат запрошенному CalculationMeta ID={calculation_meta.id}"
+            )
+
+        # Проверяем, все ли органы отображаются
+        unique_organs = results.values_list(
+            "component__setting_designation", flat=True
+        ).distinct()
+        print(f"[DEBUG] Уникальных органов в результатах: {len(unique_organs)}")
+        print(f"[DEBUG] Список органов: {list(unique_organs)}")
+
+        # Проверяем количество результатов на полукомплект
+        for half_set in calculation_meta.line.protection_half_sets.all():
+            half_set_results = results.filter(protection_half_set=half_set)
+            print(
+                f"[DEBUG] Полукомплект {half_set}: {half_set_results.count()} результатов"
+            )
+    else:
+        print(
+            f"[WARNING] Нет результатов для calculation_meta_id={calculation_meta_id}"
+        )
+        # Проверяем, есть ли результаты для других расчетов этой ЛЭП
+        other_results = SettingsCalculation.objects.filter(
+            calculation_meta__line=calculation_meta.line
+        ).exclude(calculation_meta=calculation_meta)
+        if other_results.exists():
+            print(
+                f"[WARNING] Найдено {other_results.count()} результатов для других расчетов этой ЛЭП"
+            )
+            latest_calc = (
+                CalculationMeta.objects.filter(line=calculation_meta.line)
+                .order_by("-calculation_date")
+                .first()
+            )
+            if latest_calc:
+                print(
+                    f"[WARNING] Последний расчет для этой ЛЭП: ID={latest_calc.id}, Дата={latest_calc.calculation_date}"
+                )
+
     return render(
         request,
         "calculation/results.html",
@@ -1098,24 +1354,48 @@ def sensitivity_analysis(request, calculation_meta_id):
     sens_analysis = SensitivityAnalysis.objects.filter(
         settings_calculation__calculation_meta=calculation_meta
     ).order_by(
-        'settings_calculation__protection_half_set',
-        'settings_calculation__component__setting_designation',
-        'fault_calculation__fault_type',
-        'fault_calculation__fault_location'
+        "settings_calculation__protection_half_set",
+        "settings_calculation__component__setting_designation",
+        "fault_calculation__fault_type",
+        "fault_calculation__fault_location",
     )
-    
+
+    # Логируем для диагностики
+    print(
+        f"[DEBUG] Отображение анализа чувствительности: ID={calculation_meta_id}, ЛЭП={calculation_meta.line}, Найдено записей: {sens_analysis.count()}"
+    )
+
     # Добавляем пагинацию
     paginator = Paginator(sens_analysis, 15)  # 15 записей на страницу
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
-    
+
+    # Получаем уникальные органы для модального окна (из всех записей, не только текущей страницы)
+    unique_components = sens_analysis.values_list(
+        "settings_calculation__component__id",
+        "settings_calculation__component__setting_designation",
+    ).distinct()
+    # Получаем уникальные полукомплекты с их строковым представлением
+    unique_half_set_ids = sens_analysis.values_list(
+        "settings_calculation__protection_half_set__id", flat=True
+    ).distinct()
+    # Создаем список кортежей (id, строковое представление)
+    from core.models import ProtectionHalfSet
+
+    unique_half_sets = [
+        (hs.id, str(hs))
+        for hs in ProtectionHalfSet.objects.filter(id__in=unique_half_set_ids)
+    ]
+
     return render(
         request,
         "calculation/sensitivity_analysis.html",
         {
             "page_obj": page_obj,
             "calculation_meta": calculation_meta,
-            "sens_analysis": sens_analysis,
+            "sens_analysis": sens_analysis,  # Оставляем для обратной совместимости
+            "unique_components": unique_components,
+            "unique_half_sets": unique_half_sets,
         },
     )
 
@@ -1129,7 +1409,6 @@ def calculation_list(request):
 
 
 def sensitivity_chart_view(request):
-
     component_id = request.GET.get("component_id")
     half_set_id = request.GET.get("half_set_id")
 
@@ -1164,13 +1443,13 @@ def sensitivity_chart_view(request):
         )
         datasets.append(
             {
-            "label": fault_type,
+                "label": fault_type,
                 "data": [
                     grouped_data[topology].get(fault_type, 0) for topology in labels
                 ],
-            "backgroundColor": color["backgroundColor"],
-            "borderColor": color["borderColor"],
-            "borderWidth": 1,
+                "backgroundColor": color["backgroundColor"],
+                "borderColor": color["borderColor"],
+                "borderWidth": 1,
             }
         )
 
@@ -1228,9 +1507,9 @@ def export_sensitivity_analysis(request, calculation_meta_id):
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    response["Content-Disposition"] = (
-        f'attachment; filename="sensitivity_analysis_{calculation_meta.id}.xlsx"'
-    )
+    response[
+        "Content-Disposition"
+    ] = f'attachment; filename="sensitivity_analysis_{calculation_meta.id}.xlsx"'
     wb.save(response)
 
     return response
@@ -1277,10 +1556,10 @@ def export_calculation_results(request, calculation_meta_id):
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    response["Content-Disposition"] = (
-        f'attachment; filename="calculation_results_{calculation_meta.id}.xlsx"'
-    )
-    
+    response[
+        "Content-Disposition"
+    ] = f'attachment; filename="calculation_results_{calculation_meta.id}.xlsx"'
+
     wb.save(response)
     return response
 
@@ -1295,47 +1574,62 @@ def get_available_projects_ajax(request):
         pf_manager = PowerFactoryManager()
         print(f"[DEBUG] get_available_projects_ajax: начало запроса")
         projects = pf_manager.get_available_projects()
-        print(f"[DEBUG] get_available_projects_ajax: получено проектов: {len(projects) if projects else 0}")
-        
+        print(
+            f"[DEBUG] get_available_projects_ajax: получено проектов: {len(projects) if projects else 0}"
+        )
+
         # Получаем текущий выбранный проект из сессии
-        current_project = request.session.get('pf_project_name')
-        print(f"[DEBUG] get_available_projects_ajax: текущий проект из сессии: {current_project}")
-        
+        current_project = request.session.get("pf_project_name")
+        print(
+            f"[DEBUG] get_available_projects_ajax: текущий проект из сессии: {current_project}"
+        )
+
         # Проверяем доступность текущего проекта
         project_status = None
         if current_project:
             try:
                 project_status = pf_manager.check_project_available(current_project)
-                print(f"[DEBUG] get_available_projects_ajax: статус проекта '{current_project}': {project_status}")
+                print(
+                    f"[DEBUG] get_available_projects_ajax: статус проекта '{current_project}': {project_status}"
+                )
             except Exception as e:
-                print(f"[DEBUG] get_available_projects_ajax: ошибка при проверке статуса проекта: {e}")
+                print(
+                    f"[DEBUG] get_available_projects_ajax: ошибка при проверке статуса проекта: {e}"
+                )
                 project_status = None
-        
+
         response_data = {
-            'projects': projects,
-            'current_project': current_project,
-            'project_available': project_status  # True/False/None
+            "projects": projects,
+            "current_project": current_project,
+            "project_available": project_status,  # True/False/None
         }
         print(f"[DEBUG] get_available_projects_ajax: отправка ответа: {response_data}")
         return JsonResponse(response_data)
     except ModuleNotFoundError as e:
         # PowerFactory не установлен или недоступен
-        return JsonResponse({
-            'error': 'PowerFactory недоступен. Убедитесь, что PowerFactory установлен и запущен.',
-            'error_type': 'ModuleNotFoundError',
-            'projects': [],
-            'current_project': None,
-            'project_available': None
-        }, status=500)
+        return JsonResponse(
+            {
+                "error": "PowerFactory недоступен. Убедитесь, что PowerFactory установлен и запущен.",
+                "error_type": "ModuleNotFoundError",
+                "projects": [],
+                "current_project": None,
+                "project_available": None,
+            },
+            status=500,
+        )
     except Exception as e:
         # Другие ошибки
         import traceback
+
         error_trace = traceback.format_exc()
         print(f"Ошибка при получении проектов PowerFactory: {error_trace}")
-        return JsonResponse({
-            'error': str(e),
-            'error_type': type(e).__name__,
-            'projects': [],
-            'current_project': None,
-            'project_available': None
-        }, status=500)
+        return JsonResponse(
+            {
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "projects": [],
+                "current_project": None,
+                "project_available": None,
+            },
+            status=500,
+        )

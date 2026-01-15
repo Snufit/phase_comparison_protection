@@ -8,11 +8,11 @@ from calculation.services.powerfactory_manager import PowerFactoryManager
 class Command(BaseCommand):
     """
     Команда для анализа топологии для всех линий с полукомплектами защиты.
-    
+
     Находит все линии, которые имеют полукомплекты защиты,
     и для каждого полукомплекта получает топологию из PowerFactory
     и сохраняет в БД (HalfSetTopology).
-    
+
     Запуск:
         python manage.py analyze_topology_for_all_lines
         python manage.py analyze_topology_for_all_lines --line-id 123
@@ -91,10 +91,13 @@ class Command(BaseCommand):
         # Фильтруем только те, у которых нет топологии (если указан флаг)
         if options.get("only_missing"):
             from core.models import HalfSetTopology
+
             existing_topology_half_set_ids = set(
                 HalfSetTopology.objects.values_list("protection_half_set_id", flat=True)
             )
-            half_sets = [hs for hs in half_sets if hs.id not in existing_topology_half_set_ids]
+            half_sets = [
+                hs for hs in half_sets if hs.id not in existing_topology_half_set_ids
+            ]
 
         if not half_sets:
             self.stdout.write(
@@ -102,7 +105,9 @@ class Command(BaseCommand):
             )
             return
 
-        total_half_sets = len(half_sets) if isinstance(half_sets, list) else half_sets.count()
+        total_half_sets = (
+            len(half_sets) if isinstance(half_sets, list) else half_sets.count()
+        )
         self.stdout.write(
             self.style.SUCCESS(f"Найдено полукомплектов защиты: {total_half_sets}")
         )
@@ -211,6 +216,7 @@ class Command(BaseCommand):
                     )
                 )
                 import traceback
+
                 self.stdout.write(self.style.ERROR(traceback.format_exc()))
                 continue
 
@@ -223,4 +229,3 @@ class Command(BaseCommand):
         self.stdout.write(f"  Пропущено топологий: {skipped_topologies}")
         if error_count > 0:
             self.stdout.write(self.style.ERROR(f"  Ошибок: {error_count}"))
-
