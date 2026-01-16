@@ -42,23 +42,87 @@ PF_SUBSTATION_CLASS = "*.ElmSubstat"
 
 
 def _get_powerfactory_object(
-    app, pf_class_name: str, pf_object_name: str
+    app, pf_class_name: str, pf_object_name: str, max_retries: int = 3
 ) -> Optional[Any]:
     """
     Метод поиска объектов в модели PowerFactory
     по названию класса и имени объекта.
+    Включает обработку ошибок многопоточности с повторными попытками.
 
     :param app: COM-объект PowerFactory.
     :param pf_class_name: Название класса в PowerFactory.
     :param pf_object_name: Имя объекта в модели PowerFactory.
+    :param max_retries: Максимальное количество попыток при ошибке многопоточности.
     :return: Объект модели PowerFactory или None.
     """
-
-    pf_objects = app.GetCalcRelevantObjects(pf_class_name)
-    for pf_object in pf_objects:
-        if pf_object.GetAttribute("loc_name") == pf_object_name:
-            return pf_object
-    raise ValueError(f"Объект {pf_object_name} не найден")
+    import time
+    import powerfactory  # type: ignore
+    
+    for attempt in range(max_retries):
+        try:
+            pf_objects = app.GetCalcRelevantObjects(pf_class_name)
+            for pf_object in pf_objects:
+                try:
+                    if pf_object.GetAttribute("loc_name") == pf_object_name:
+                        return pf_object
+                except (RuntimeError, AttributeError) as e:
+                    # Ошибка при работе с объектом - пропускаем его
+                    if "can't be used from other threads" in str(e):
+                        # Если ошибка многопоточности при работе с объектом,
+                        # пересоздаем app и пробуем снова
+                        if attempt < max_retries - 1:
+                            app = powerfactory.GetApplication()
+                            if app:
+                                time.sleep(0.1)
+                                break  # Выходим из внутреннего цикла, чтобы повторить внешний
+                            continue
+                    # Для других ошибок - просто пропускаем объект
+                    continue
+            
+            # Если дошли сюда, значит объект не найден
+            # Но проверяем, не была ли ошибка многопоточности
+            # (она могла произойти в GetCalcRelevantObjects, но не быть поймана)
+            raise ValueError(f"Объект {pf_object_name} не найден")
+            
+        except RuntimeError as e:
+            if "can't be used from other threads" in str(e):
+                if attempt < max_retries - 1:
+                    print(f"[DEBUG] Ошибка многопоточности в _get_powerfactory_object (попытка {attempt + 1}/{max_retries})")
+                    # Пересоздаем app и пробуем снова
+                    app = powerfactory.GetApplication()
+                    if app:
+                        time.sleep(0.1)
+                        continue
+                    else:
+                        raise RuntimeError(
+                            "Не удалось получить приложение PowerFactory после ошибки многопоточности. "
+                            "Убедитесь, что PowerFactory запущен и сервер Django работает в однопоточном режиме "
+                            "(python manage.py runserver --nothreading)."
+                        )
+                else:
+                    raise RuntimeError(
+                        f"Ошибка многопоточности PowerFactory после {max_retries} попыток. "
+                        f"Запустите сервер Django в однопоточном режиме: "
+                        f"python manage.py runserver --nothreading"
+                    )
+            else:
+                # Другие RuntimeError пробрасываем дальше
+                raise
+        except ValueError:
+            # Объект не найден - это нормальная ситуация, пробрасываем дальше
+            raise
+        except Exception as e:
+            # Для других исключений пробуем повторить
+            if attempt < max_retries - 1:
+                print(f"[DEBUG] Неожиданная ошибка в _get_powerfactory_object (попытка {attempt + 1}/{max_retries}): {e}")
+                app = powerfactory.GetApplication()
+                if app:
+                    time.sleep(0.1)
+                    continue
+            raise
+    
+    # Если дошли сюда, значит все попытки не удались
+    raise ValueError(f"Объект {pf_object_name} не найден после {max_retries} попыток")
 
 
 def get_pf_line(app, pf_line_name: str):

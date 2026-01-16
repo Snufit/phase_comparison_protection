@@ -171,11 +171,11 @@ class SettingsCalculationService:
         - k_н = 1.5 - коэффициент надежности манипуляции
         - I_ДДРТ - длительно допустимый рабочий ток защищаемой ЛЭП (load_current, в А)
         - I_1^К(1,1) - ток прямой последовательности при двухфазном КЗ на землю
-          на противоположном конце (в мА, переводим в А)
+          на противоположном конце (в А)
         - I_2^К(1,1) - ток обратной последовательности при двухфазном КЗ на землю
-          на противоположном конце (в мА, переводим в А)
+          на противоположном конце (в А)
         - I_2^К(1) - ток обратной последовательности при однофазном КЗ
-          на противоположном конце (в мА, переводим в А)
+          на противоположном конце (в А)
 
         Коэффициент манипуляции выбирается по максимальному значению из двух условий.
         """
@@ -196,13 +196,13 @@ class SettingsCalculationService:
 
             if fault_type == "К(1,1)":
                 # Формула для двухфазного КЗ на землю: K_М ≥ k_н * ((I_1^К(1,1) + I_ДДРТ) / I_2^К(1,1))
-                i1_k11 = fault_values.get("I1", 0)  # в мА
-                i2_k11 = fault_values.get("I2", 0)  # в мА
+                i1_k11 = fault_values.get("I1", 0)  # в А
+                i2_k11 = fault_values.get("I2", 0)  # в А
 
                 if i2_k11 and i2_k11 != 0:
-                    # Переводим токи из мА в А
-                    i1_k11_a = i1_k11 / 1000
-                    i2_k11_a = i2_k11 / 1000
+                    # Значения уже в А (не нужно переводить)
+                    i1_k11_a = i1_k11
+                    i2_k11_a = i2_k11
 
                     manipulation_factor = k_n * (
                         (i1_k11_a + self.load_current) / i2_k11_a
@@ -211,11 +211,11 @@ class SettingsCalculationService:
 
             elif fault_type == "К(1)":
                 # Формула для однофазного КЗ: K_М ≥ k_н * (I_ДДРТ / I_2^К(1))
-                i2_k1 = fault_values.get("I2", 0)  # в мА
+                i2_k1 = fault_values.get("I2", 0)  # в А
 
                 if i2_k1 and i2_k1 != 0:
-                    # Переводим ток из мА в А
-                    i2_k1_a = i2_k1 / 1000
+                    # Значения уже в А (не нужно переводить)
+                    i2_k1_a = i2_k1
 
                     manipulation_factor = k_n * (self.load_current / i2_k1_a)
                 manipulation_factors.append(manipulation_factor)
@@ -334,11 +334,11 @@ class SettingsCalculationService:
             return 0.0, {}
 
         # Берем минимальный ток для обеспечения чувствительности во всех режимах сети
-        min_i1 = min(pos_sequence_currents)  # в мА
+        min_i1 = min(pos_sequence_currents)  # в А
 
         # Формула: DI_1откл = (I_1^(К(3)))/k_ч
-        # Переводим из мА в А
-        di1_break_value = min_i1 / self.current_sensitivity_rate / 1000
+        # Значения уже в А
+        di1_break_value = min_i1 / self.current_sensitivity_rate
 
         return di1_break_value, {}
 

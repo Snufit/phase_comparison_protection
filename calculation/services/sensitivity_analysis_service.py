@@ -354,9 +354,9 @@ class SensitivityAnalysisService:
                                     "K МАН",
                                     "К МАН",
                                 ]:
-                                    # Переводим I1 из мА в А
+                                    # Значения уже в А (не нужно переводить)
                                     min_i1_k3_a = (
-                                        float(min_fault_value) / 1000
+                                        float(min_fault_value)
                                         if min_fault_value
                                         else 0.0
                                     )
@@ -429,9 +429,8 @@ class SensitivityAnalysisService:
                             )
                         # Для K МАН используем специальную формулу с I2 БЛОК
                         elif component.setting_designation in ["K МАН", "К МАН"]:
-                            # Переводим I1 из мА в А
-                            i1_k3_a = float(fault_value) / \
-                                1000 if fault_value else 0.0
+                            # Значения уже в А (не нужно переводить)
+                            i1_k3_a = float(fault_value) if fault_value else 0.0
                             sensitivity_rate = sensitivity_analysis_function(
                                 settings_calculation, protection_half_set, i1_k3_a
                             )
@@ -506,8 +505,8 @@ class SensitivityAnalysisService:
 
         Формула: k_ч = (k_сх * I_1^(К(3))) / IЛ ОТКЛ
 
-        :param result_value: Величина уставки.
-        :param fault_value: Величина тока КЗ.
+        :param result_value: Величина уставки (в А).
+        :param fault_value: Величина тока КЗ (в А).
         :param k_sx: Коэффициент схемы (по умолчанию √3 для векторной разности).
         :return: Коэффициент чувствительности.
         """
@@ -515,7 +514,9 @@ class SensitivityAnalysisService:
         if result_value == 0 or result_value is None:
             return 0.0
 
-        sensitivity_rate = k_sx * fault_value / result_value
+        # Значения уже в А (не нужно переводить)
+        fault_value_a = float(fault_value) if fault_value else 0.0
+        sensitivity_rate = k_sx * fault_value_a / result_value
         return sensitivity_rate
 
     @staticmethod
@@ -525,15 +526,19 @@ class SensitivityAnalysisService:
         """
         Рассчитывает чувствительность для токовых и напряженческих органов.
 
-        :param result_value: Величина уставки.
-        :param fault_value: Величина тока/напряжения КЗ.
+        :param result_value: Величина уставки (в А для токов, в В для напряжений).
+        :param fault_value: Величина тока/напряжения КЗ (в А для токов, в В для напряжений).
         :return: Коэффициент чувствительности.
         """
         # Проверка на деление на ноль
         if result_value == 0 or result_value is None:
             return 0.0
 
-        sensitivity_rate = fault_value / result_value
+        # Значения токов КЗ уже в А (не нужно переводить)
+        # Для напряжений значения уже в В
+        fault_value_converted = float(fault_value) if fault_value else 0.0
+        
+        sensitivity_rate = fault_value_converted / result_value
         return sensitivity_rate
 
     @staticmethod
@@ -545,17 +550,21 @@ class SensitivityAnalysisService:
 
         Формула: k_ч = (I_2^КЗ - I_2н.р) / DI2 ОТКЛ
 
-        :param result_value: Величина уставки DI2 ОТКЛ.
-        :param fault_value: Величина тока обратной последовательности при КЗ (I_2^КЗ).
-        :param i2_nr: Ток обратной последовательности в нагрузочном режиме (I_2н.р), по умолчанию 0.
+        :param result_value: Величина уставки DI2 ОТКЛ (в А).
+        :param fault_value: Величина тока обратной последовательности при КЗ (I_2^КЗ, в А).
+        :param i2_nr: Ток обратной последовательности в нагрузочном режиме (I_2н.р, в А), по умолчанию 0.
         :return: Коэффициент чувствительности.
         """
         # Проверка на деление на ноль
         if result_value == 0 or result_value is None:
             return 0.0
 
+        # Значения уже в А (не нужно переводить)
+        fault_value_a = float(fault_value) if fault_value else 0.0
+        i2_nr_a = float(i2_nr) if i2_nr else 0.0
+        
         # Вычитаем ток небаланса
-        effective_fault_value = fault_value - i2_nr
+        effective_fault_value = fault_value_a - i2_nr_a
         if effective_fault_value <= 0:
             return 0.0
 
@@ -639,8 +648,7 @@ class SensitivityAnalysisService:
             if fault_calc_opposite and fault_calc_opposite.fault_values:
                 i1_value = fault_calc_opposite.fault_values.get("I1")
                 if i1_value:
-                    i1_3_opposite = float(i1_value) / \
-                        1000  # Переводим из мА в А
+                    i1_3_opposite = float(i1_value)  # Значения уже в А
 
             # Ток КЗ на конце текущего полукомплекта (для расчета отношения)
             i1_3_current = None
@@ -657,8 +665,7 @@ class SensitivityAnalysisService:
             if fault_calc_current and fault_calc_current.fault_values:
                 i1_value = fault_calc_current.fault_values.get("I1")
                 if i1_value:
-                    i1_3_current = float(i1_value) / \
-                        1000  # Переводим из мА в А
+                    i1_3_current = float(i1_value)  # Значения уже в А
 
             # Определяем I1^(3)_1 и I1^(3)_2 согласно формуле
             # I1^(3)_1 - ток КЗ со стороны полукомплекта 2 (противоположный для полукомплекта 1)
@@ -700,7 +707,7 @@ class SensitivityAnalysisService:
 
                 if ua_ost_otv and i1_3_otv and i1_3_otv > 0:
                     ua_ost_otv_kv = float(ua_ost_otv)  # кВ
-                    i1_3_otv_a = float(i1_3_otv) / 1000  # Переводим из мА в А
+                    i1_3_otv_a = float(i1_3_otv)  # Значения уже в А
 
                     # R_max_отв = cos(Фмч) * (UA_ост_отв / I1^(3)_отв)
                     r_otv = (
@@ -823,7 +830,7 @@ class SensitivityAnalysisService:
                     # Для РТНП ищем минимальный 3I0
                     i0_value = fault_values.get("3I0")
                     if i0_value:
-                        i0_a = float(i0_value) / 1000  # Переводим из мА в А
+                        i0_a = float(i0_value)  # Значения уже в А
                         if min_value is None or i0_a < min_value:
                             min_value = i0_a
                 elif target_fault_value == "RNM_U0":
@@ -920,7 +927,7 @@ class SensitivityAnalysisService:
 
                 i0_value = fault_values.get("3I0")
                 if i0_value:
-                    i0_a = float(i0_value) / 1000  # Переводим из мА в А
+                    i0_a = float(i0_value)  # Значения уже в А
                     print(
                         f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
                         f"подрежим '{fault_calculation.network_topology}': 3I0 = {i0_a:.3f} А"
@@ -1011,17 +1018,17 @@ class SensitivityAnalysisService:
                 )
                 return 0.0
 
-            i2_block_ma = i2_block_calculation.result_value  # в мА
+            i2_block_a = i2_block_calculation.result_value  # в А (primary_value)
         except Component.DoesNotExist:
             print(f"[WARNING] Компонент I2 БЛОК не найден")
             return 0.0
 
         # Проверка на деление на ноль
-        if i2_block_ma == 0:
+        if i2_block_a == 0:
             return 0.0
 
-        # Переводим I2 БЛОК из мА в А
-        i2_block_a = float(i2_block_ma) / 1000
+        # result_value хранит primary_value (в А), не нужно переводить
+        i2_block_a = float(i2_block_a) if i2_block_a else 0.0
 
         # Формула: K_ч ман сим = min(I1^(3)) / (K * I2 БЛОК)
         # где все значения в А
@@ -1036,9 +1043,12 @@ class SensitivityAnalysisService:
         k_ch_required = 1.3
         is_sensitive = sensitivity_rate >= k_ch_required
 
+        # Для логирования вычисляем вторичное значение (мА) для отображения
+        i2_block_secondary = i2_block_a * 1000 if i2_block_a else 0.0  # А → мА для отображения
+
         print(
             f"[DEBUG] K МАН чувствительность: "
-            f"I1_КЗ_МИН={min_i1_k3:.2f} А, K_МАН={k_man:.2f}, I2_БЛОК={i2_block_a:.3f} А ({i2_block_ma:.0f} мА), "
+            f"I1_КЗ_МИН={min_i1_k3:.2f} А, K_МАН={k_man:.2f}, I2_БЛОК={i2_block_a:.3f} А ({i2_block_secondary:.0f} мА), "
             f"K_ч={sensitivity_rate:.2f}, требуется ≥ {k_ch_required}, "
             f"проходит={'ДА' if is_sensitive else 'НЕТ'}"
         )

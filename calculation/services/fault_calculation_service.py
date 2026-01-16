@@ -523,15 +523,20 @@ class FaultCalculationService:
         if pf_line.HasAttribute("n:U0:0"):
             zero_sequence_voltage = pf_line.GetAttribute("n:U0:0")
 
+        # ВАЖНО: PowerFactory возвращает значения токов в кА (килоамперах) и напряжений в кВ (киловольтах)
+        # Преобразуем кА → А (умножаем на 1000)
+        # Все значения токов КЗ должны быть в А (амперах)
+        # Все значения напряжений КЗ должны быть в кВ (киловольтах)
+        
         results = {
-            "I1": round(pos_sequence_current * 1000, 0),
-            "I2": round(neg_sequence_current * 1000, 0),
-            "3I0": round(triple_zero_sequence_current * 1000, 0),
-            "U2": round(neg_sequence_voltage, 0),
+            "I1": round(pos_sequence_current * 1000, 2),  # кА → А
+            "I2": round(neg_sequence_current * 1000, 2),  # кА → А
+            "3I0": round(triple_zero_sequence_current * 1000, 2),  # кА → А
+            "U2": round(neg_sequence_voltage, 2),  # Напряжение обратной последовательности (кВ)
             "U1": round(
-                pos_sequence_voltage, 0
-            ),  # Остаточное напряжение прямой последовательности
-            "3U0": round(3 * zero_sequence_voltage, 0)
+                pos_sequence_voltage, 2
+            ),  # Остаточное напряжение прямой последовательности (кВ)
+            "3U0": round(3 * zero_sequence_voltage, 2)
             if zero_sequence_voltage > 0
             else 0,  # Утроенное напряжение нулевой последовательности (кВ)
         }
@@ -544,14 +549,20 @@ class FaultCalculationService:
         print(f"[DEBUG] Результаты КЗ {fault_type_ru}:")
         print(f"[DEBUG]   Место: {location_str}")
         print(f"[DEBUG]   Подрежим: {submode_str}")
+        # Значения из PowerFactory в кА, преобразуем для отображения
+        i1_ka = pos_sequence_current
+        i1_a = i1_ka * 1000  # кА → А
+        i2_ka = neg_sequence_current
+        i2_a = i2_ka * 1000  # кА → А
+        i0_ka = triple_zero_sequence_current
+        i0_a = i0_ka * 1000  # кА → А
         print(
-            f"[DEBUG]   I1 = {results['I1']:.0f} мА ({pos_sequence_current:.3f} А)")
+            f"[DEBUG]   I1 = {results['I1']:.2f} А ({i1_ka:.3f} кА)")
         print(
-            f"[DEBUG]   I2 = {results['I2']:.0f} мА ({neg_sequence_current:.3f} А)")
+            f"[DEBUG]   I2 = {results['I2']:.2f} А ({i2_ka:.3f} кА)")
         print(
-            f"[DEBUG]   3I0 = {results['3I0']:.0f} мА ({triple_zero_sequence_current/1000:.3f} А)"
-        )
-        print(f"[DEBUG]   U2 = {results['U2']:.2f} В")
+            f"[DEBUG]   3I0 = {results['3I0']:.2f} А ({i0_ka:.3f} кА)")
+        print(f"[DEBUG]   U2 = {results['U2']:.2f} кВ")
         print(f"[DEBUG]   U1 = {results['U1']:.2f} кВ")
         print(f"[DEBUG]   3U0 = {results['3U0']:.2f} кВ")
 
