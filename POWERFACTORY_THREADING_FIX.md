@@ -51,3 +51,4 @@ gunicorn --workers 1 --threads 1 phase_comparison_protection.wsgi:application
 3. Проверьте, что не запущено несколько экземпляров PowerFactory
 
 
+
