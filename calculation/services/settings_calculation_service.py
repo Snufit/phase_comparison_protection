@@ -246,7 +246,7 @@ class SettingsCalculationService:
         - I_ДДРТ - длительно допустимый рабочий ток защищаемой ЛЭП (load_current)
         """
         il_grading_factor = self.calculation_factors.get(
-            "il_grading_factor", 1.3)
+            "il_grading_factor", 1.2)
         # Определяем коэффициент возврата в зависимости от производителя
         il_reset_factor = self.calculation_factors.get(
             "il_reset_factor", self._get_reset_factor(default_value=0.9)
@@ -294,7 +294,7 @@ class SettingsCalculationService:
                     is_active=True).exists()
 
         if has_branches:
-            k_otv = 2.0
+            k_otv = 1.5
             il_break_value = il_break_value * k_otv
             print(
                 f"[DEBUG] Для IЛ ОТКЛ применен коэффициент ответвления = {k_otv}")
@@ -479,7 +479,7 @@ class SettingsCalculationService:
         i2_imbalance_factor = self.calculation_factors.get(
             "i2_imbalance_factor", 0.05)
         i2_grading_factor = self.calculation_factors.get(
-            "i2_grading_factor", 1.3)
+            "i2_grading_factor", 1.2)
         # Ток обратной последовательности в нагрузочном режиме (по умолчанию 0)
         i2_load_current = self.calculation_factors.get("i2_load_current", 0.0)
 
@@ -540,7 +540,7 @@ class SettingsCalculationService:
                     is_active=True).exists()
 
         if has_branches:
-            k_otv = 2.0
+            k_otv = 1.5
             i2_break_value = i2_break_value * k_otv
             print(
                 f"[DEBUG] Для I2 ОТКЛ применен коэффициент ответвления = {k_otv}")
@@ -624,7 +624,7 @@ class SettingsCalculationService:
           зависит от производителя: ЭКРА = 0.9, Релематика/Бреслер = 0.95)
         """
         u2_grading_factor = self.calculation_factors.get(
-            "u2_grading_factor", 1.3)
+            "u2_grading_factor", 1.2)
         # Определяем коэффициент возврата в зависимости от производителя
         u2_reset_factor = self.calculation_factors.get(
             "u2_reset_factor", self._get_reset_factor(default_value=0.9)
@@ -957,10 +957,7 @@ class SettingsCalculationService:
         x_break_value = max(x_break_length, x_break_branch)
 
         calculation_factors = {
-            "Коэффициент для расчета по ответвлениям": x_break_branch_factor,
             "Угол максимальной чувствительности, град": round(phi_mch_deg, 2),
-            "X откл по длине линии, Ом": round(x_break_length, 2),
-            "X откл по ответвлениям, Ом": round(x_break_branch, 2),
         }
         return x_break_value, calculation_factors
 
@@ -1081,7 +1078,6 @@ class SettingsCalculationService:
             )  # Используем коэффициент надежности
             calculation_factors = {
                 "Коэффициент надежности": 0.85,
-                "Примечание": "Расчет выполнен без учета трансформаторов ответвлений (данные недоступны)",
             }
             return x_otv_value, calculation_factors
 
@@ -1409,16 +1405,11 @@ class SettingsCalculationService:
                 component,
                 factors,
             ) in manipulation_factor_components:
-                # Обновляем factors с информацией о рассчитанном и округленном значении
-                updated_factors = factors.copy()
-                updated_factors["Рассчитанное значение"] = max_manipulation_factor
-                updated_factors["Округленное значение"] = final_manipulation_factor
-
                 result = round(final_manipulation_factor, 0)
                 self.save_result_to_db(
                     protection_half_set=protection_half_set,
                     component=component,
-                    calculation_factors=updated_factors,
+                    calculation_factors=factors,
                     result_value=result,
                 )
                 total_saved += 1

@@ -259,7 +259,7 @@ class FaultCalculationService:
                     )
 
                     # Находим терминал на подстанции ответвления, подключенный к линии
-                    branch_terminal = self._get_branch_terminal(
+                    branch_terminal = FaultCalculationService._get_branch_terminal(
                         pf_line, pf_branch_substation
                     )
 
@@ -416,7 +416,6 @@ class FaultCalculationService:
                 return terminal
 
     @staticmethod
-    @staticmethod
     def _get_branch_terminal(pf_line, pf_branch_substation):
         """
         Находит терминал на подстанции ответвления, подключенный к линии.
@@ -441,41 +440,86 @@ class FaultCalculationService:
             f"[DEBUG] Поиск терминала на подстанции '{branch_substation_name}' для линии '{pf_line.GetAttribute('loc_name')}'"
         )
 
-        # Определяем узлы подключения защищаемой ЛЭП
+        # Сначала пробуем найти терминал напрямую через GetConnectedElements на линии
         line_terminals = pf_line.GetConnectedElements()
-        if not line_terminals:
-            print(f"[DEBUG] У линии нет подключенных терминалов")
-            return None
+        if line_terminals:
+            print(f"[DEBUG] Найдено терминалов на линии: {len(line_terminals)}")
+            for terminal in line_terminals:
+                try:
+                    # Определяем подстанцию, которой принадлежит узел
+                    substation = terminal.GetParent()
 
-        print(f"[DEBUG] Найдено терминалов на линии: {len(line_terminals)}")
+                    if not substation:
+                        continue
 
-        for terminal in line_terminals:
-            try:
-                # Определяем подстанцию, которой принадлежит узел
-                substation = terminal.GetParent()
+                    # Сравниваем по имени подстанции (более надежно, чем сравнение объектов)
+                    substation_name = substation.GetAttribute("loc_name")
 
-                if not substation:
+                    print(
+                        f"[DEBUG] Проверка терминала '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
+                    )
+
+                    # Возвращаем терминал, если он принадлежит подстанции ответвления
+                    if substation_name == branch_substation_name:
+                        print(
+                            f"[DEBUG] ✓ Найден терминал '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
+                        )
+                        return terminal
+                except Exception as e:
+                    print(f"[DEBUG] Ошибка при проверке терминала: {e}")
                     continue
 
-                # Сравниваем по имени подстанции (более надежно, чем сравнение объектов)
-                substation_name = substation.GetAttribute("loc_name")
+        # Если терминал не найден напрямую, ищем все терминалы на подстанции ответвления
+        # и проверяем их связь с линией через промежуточные объекты
+        print(f"[DEBUG] Поиск терминалов на подстанции '{branch_substation_name}'...")
+        try:
+            substation_terminals = pf_branch_substation.GetContents("*.ElmTerm")
+            if not substation_terminals:
+                print(f"[DEBUG] На подстанции '{branch_substation_name}' нет терминалов")
+                return None
 
-                print(
-                    f"[DEBUG] Проверка терминала '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
-                )
+            print(f"[DEBUG] Найдено терминалов на подстанции: {len(substation_terminals)}")
 
-                # Возвращаем терминал, если он принадлежит подстанции ответвления
-                if substation_name == branch_substation_name:
-                    print(
-                        f"[DEBUG] ✓ Найден терминал '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
-                    )
-                    return terminal
-            except Exception as e:
-                print(f"[DEBUG] Ошибка при проверке терминала: {e}")
-                continue
+            # Получаем все связанные элементы с линией для проверки связи
+            line_connected_elements = pf_line.GetConnectedElements() or []
+
+            # Проверяем каждый терминал на подстанции
+            for terminal in substation_terminals:
+                try:
+                    terminal_name = terminal.GetAttribute("loc_name")
+                    print(f"[DEBUG] Проверка терминала '{terminal_name}' на подстанции '{branch_substation_name}'")
+
+                    # Получаем все связанные элементы терминала
+                    terminal_connected = terminal.GetConnectedElements() or []
+
+                    # Проверяем, связан ли терминал с линией через промежуточные объекты
+                    # Ищем общие связанные элементы или проверяем прямое подключение
+                    for connected_elem in terminal_connected:
+                        # Если терминал связан с элементом, который также связан с линией
+                        if connected_elem in line_connected_elements:
+                            print(
+                                f"[DEBUG] ✓ Найден терминал '{terminal_name}' на подстанции '{branch_substation_name}', "
+                                f"связанный с линией через промежуточный объект"
+                            )
+                            return terminal
+
+                    # Также проверяем прямое подключение терминала к линии
+                    if pf_line in terminal_connected:
+                        print(
+                            f"[DEBUG] ✓ Найден терминал '{terminal_name}' на подстанции '{branch_substation_name}', "
+                            f"напрямую подключенный к линии"
+                        )
+                        return terminal
+
+                except Exception as e:
+                    print(f"[DEBUG] Ошибка при проверке терминала: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"[DEBUG] Ошибка при получении терминалов подстанции: {e}")
 
         print(
-            f"[DEBUG] ✗ Терминал на подстанции '{branch_substation_name}' не найден среди {len(line_terminals)} терминалов линии"
+            f"[DEBUG] ✗ Терминал на подстанции '{branch_substation_name}' не найден"
         )
         return None
 

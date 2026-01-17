@@ -162,25 +162,25 @@ class SensitivityFaultMap:
         # Органы, которые не проверяются на чувствительность
         "K МАН": {
             "description": "Орган манипуляции",
-            "fault_types": ["К(3)"],
+            "fault_types": ["К(1)", "К(1,1)"],
             "fault_locations": [FAULT_LOCATION_OPPOSITE_END],
             "fault_value": "I1",
-            "formula": "k_ч = min(I_1^(К(3))) / (K * I2 БЛОК)",
+            "formula": "k_ч проверяется для К(1) и К(1,1) согласно расчету коэффициента манипуляции",
             "k_ch_required": 1.3,
             "check_sensitivity": True,
             "exclude_branches": True,
-            "use_min_value": True,
+            "use_min_value": False,  # Не используем минимальное значение, проверяем каждое КЗ отдельно
         },
         "К МАН": {
             "description": "Орган манипуляции (кириллица)",
-            "fault_types": ["К(3)"],
+            "fault_types": ["К(1)", "К(1,1)"],
             "fault_locations": [FAULT_LOCATION_OPPOSITE_END],
             "fault_value": "I1",
-            "formula": "k_ч = min(I_1^(К(3))) / (K * I2 БЛОК)",
+            "formula": "k_ч проверяется для К(1) и К(1,1) согласно расчету коэффициента манипуляции",
             "k_ch_required": 1.3,
             "check_sensitivity": True,
             "exclude_branches": True,
-            "use_min_value": True,
+            "use_min_value": False,  # Не используем минимальное значение, проверяем каждое КЗ отдельно
         },
         "УГОЛ БЛОК": {
             "description": "Орган сравнения фаз",

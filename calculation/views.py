@@ -1517,7 +1517,18 @@ def export_sensitivity_analysis(request, calculation_meta_id):
 
 def export_calculation_results(request, calculation_meta_id):
     calculation_meta = CalculationMeta.objects.get(id=calculation_meta_id)
-    calculations = SettingsCalculation.objects.filter(calculation_meta=calculation_meta)
+    calculations = SettingsCalculation.objects.filter(calculation_meta=calculation_meta).order_by("protection_half_set", "component__setting_designation")
+    
+    # Логируем для диагностики
+    print(f"[DEBUG] ========== Экспорт результатов расчета ==========")
+    print(f"[DEBUG] Запрошен calculation_meta_id: {calculation_meta_id}")
+    print(f"[DEBUG] Найдено результатов: {calculations.count()}")
+    
+    # Проверяем наличие U2 БЛОК и U2 ОТКЛ
+    u2_results = calculations.filter(component__setting_designation__in=["U2 БЛОК", "U2 ОТКЛ"])
+    print(f"[DEBUG] Найдено результатов U2: {u2_results.count()}")
+    for u2_result in u2_results:
+        print(f"[DEBUG]   U2 результат: {u2_result.component.setting_designation}, Полукомплект: {u2_result.protection_half_set}, Значение: {u2_result.result_value}, Primary: {u2_result.primary_value}, Secondary: {u2_result.secondary_value}")
 
     # Создаем рабочую книгу
     wb = openpyxl.Workbook()
@@ -1547,10 +1558,15 @@ def export_calculation_results(request, calculation_meta_id):
             else "Нет коэффициентов"
         )
 
+        # Используем primary_value если доступно, иначе result_value
+        primary_value = calculation.primary_value if calculation.primary_value is not None else calculation.result_value
+        secondary_value = calculation.secondary_value if calculation.secondary_value is not None else None
+
         ws.cell(row=row_num, column=1, value=str(calculation.protection_half_set))
         ws.cell(row=row_num, column=2, value=str(calculation.component))
         ws.cell(row=row_num, column=3, value=coefficients)
-        ws.cell(row=row_num, column=4, value=calculation.result_value)
+        ws.cell(row=row_num, column=4, value=primary_value)
+        ws.cell(row=row_num, column=5, value=secondary_value if secondary_value is not None else "")
 
     # Создаем HTTP-ответ с файлом Excel
     response = HttpResponse(
