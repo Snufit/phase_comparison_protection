@@ -10,6 +10,21 @@ from .models import Line, MethodologyDocument, ProtectionDevice
 from .forms import MethodologyForm
 
 
+def _log_core(message: str):
+    """
+    Вспомогательная функция для логирования через FaultCalculationService с префиксом [core].
+    
+    Args:
+        message: Сообщение для логирования (будет добавлен префикс [core])
+    """
+    try:
+        from calculation.services.fault_calculation_service import FaultCalculationService
+        FaultCalculationService._log(f"[core] {message}")
+    except ImportError:
+        # Если FaultCalculationService недоступен, просто выводим в консоль
+        print(f"[core] {message}")
+
+
 def models_list_view(request):
     return render(request, "core/models_list.html")
 
@@ -100,17 +115,17 @@ def add_methodology(request, device_id=None):
             # Логируем ошибки формы для отладки
             import json
 
-            print(f"[DEBUG] Form is not valid")
-            print(
+            _log_core(f"[DEBUG] Form is not valid")
+            _log_core(
                 f"[DEBUG] Form errors: {json.dumps(form.errors, ensure_ascii=False, default=str)}"
             )
-            print(f"[DEBUG] POST data keys: {list(request.POST.keys())}")
-            print(f"[DEBUG] FILES data keys: {list(request.FILES.keys())}")
+            _log_core(f"[DEBUG] POST data keys: {list(request.POST.keys())}")
+            _log_core(f"[DEBUG] FILES data keys: {list(request.FILES.keys())}")
             if "file" in request.FILES:
-                print(f"[DEBUG] File name: {request.FILES['file'].name}")
-                print(f"[DEBUG] File size: {request.FILES['file'].size}")
+                _log_core(f"[DEBUG] File name: {request.FILES['file'].name}")
+                _log_core(f"[DEBUG] File size: {request.FILES['file'].size}")
             else:
-                print(f"[DEBUG] No file in FILES!")
+                _log_core(f"[DEBUG] No file in FILES!")
         if form.is_valid():
             # Получаем device_id из POST, если он там есть
             post_device_id = request.POST.get("device_id") or device_id
