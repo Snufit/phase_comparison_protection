@@ -12,6 +12,18 @@ _powerfactory_module = None
 _app = None
 
 
+def _log(message: str):
+    """
+    Вспомогательная функция для логирования.
+    Использует FaultCalculationService._log() если доступен, иначе print().
+    """
+    try:
+        from calculation.services.fault_calculation_service import FaultCalculationService
+        FaultCalculationService._log(message)
+    except ImportError:
+        print(message)
+
+
 def _get_powerfactory_app():
     """
     Ленивая инициализация PowerFactory.
@@ -87,7 +99,7 @@ def _get_powerfactory_object(
         except RuntimeError as e:
             if "can't be used from other threads" in str(e):
                 if attempt < max_retries - 1:
-                    print(f"[DEBUG] Ошибка многопоточности в _get_powerfactory_object (попытка {attempt + 1}/{max_retries})")
+                    _log(f"[DEBUG] Ошибка многопоточности в _get_powerfactory_object (попытка {attempt + 1}/{max_retries})")
                     # Пересоздаем app и пробуем снова
                     app = powerfactory.GetApplication()
                     if app:
@@ -114,7 +126,7 @@ def _get_powerfactory_object(
         except Exception as e:
             # Для других исключений пробуем повторить
             if attempt < max_retries - 1:
-                print(f"[DEBUG] Неожиданная ошибка в _get_powerfactory_object (попытка {attempt + 1}/{max_retries}): {e}")
+                _log(f"[DEBUG] Неожиданная ошибка в _get_powerfactory_object (попытка {attempt + 1}/{max_retries}): {e}")
                 app = powerfactory.GetApplication()
                 if app:
                     time.sleep(0.1)
@@ -280,10 +292,10 @@ def _get_line_end_substations(branch_object, app=None) -> List[Dict[str, Any]]:
                                         if not is_duplicate:
                                             substations.append(substation_info)
                     except Exception as e:
-                        print(f"Ошибка при обработке терминала: {e}")
+                        _log(f"Ошибка при обработке терминала: {e}")
                         continue
     except Exception as e:
-        print(f"Ошибка в _get_line_end_substations: {e}")
+        _log(f"Ошибка в _get_line_end_substations: {e}")
 
     return substations
 
@@ -307,13 +319,13 @@ def _get_main_substations_with_voltage(branch_object, app=None) -> List[Dict[str
 
         # Проверяем, что строки не пустые перед преобразованием в int
         if not term0_clean or not term1_clean:
-            print(f"Предупреждение: пустые терминалы для ветви {branch_object.GetAttribute('loc_name')}")
+            _log(f"Предупреждение: пустые терминалы для ветви {branch_object.GetAttribute('loc_name')}")
             return []
         try:
             term0 = abs(int(term0_clean))
             term1 = abs(int(term1_clean))
         except ValueError as e:
-            print(f"Ошибка преобразования терминалов в int: term0='{term0_clean}', term1='{term1_clean}', ошибка: {e}")
+            _log(f"Ошибка преобразования терминалов в int: term0='{term0_clean}', term1='{term1_clean}', ошибка: {e}")
             return []
 
         end_terms = [str(term0), str(term1)]
@@ -361,10 +373,10 @@ def _get_main_substations_with_voltage(branch_object, app=None) -> List[Dict[str
                                     if not is_duplicate:
                                         substations.append(substation_info)
                 except Exception as e:
-                    print(f"Ошибка при обработке терминала: {e}")
+                    _log(f"Ошибка при обработке терминала: {e}")
                     continue
     except Exception as e:
-        print(f"Ошибка в _get_main_substations_with_voltage: {e}")
+        _log(f"Ошибка в _get_main_substations_with_voltage: {e}")
 
     return substations
 
@@ -398,18 +410,18 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
         current_line_name = branch_object.GetAttribute("loc_name")
 
         for sub in main_substations:
-            print(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
+            _log(f"      - {sub['name']} ({sub['voltage_kv']} кВ)")
 
         # Некоторые линии могут иметь одну подстанцию (тупиковые линии)
         # Это не всегда ошибка, но для ДФЗ обычно нужно 2 подстанции
         if len(main_substations) < 1:
-            print(f"У ЛЭП не найдено основных подстанций")
+            _log(f"У ЛЭП не найдено основных подстанций")
             return False
         elif len(main_substations) == 1:
-            print(f"У ЛЭП найдена только 1 ПС (возможно, тупиковая линия): {main_substations[0]['name']}")
+            _log(f"У ЛЭП найдена только 1 ПС (возможно, тупиковая линия): {main_substations[0]['name']}")
             # Не возвращаем False, так как это может быть нормально
         elif len(main_substations) > 2:
-            print(f"У ЛЭП найдено {len(main_substations)} ПС вместо 2")
+            _log(f"У ЛЭП найдено {len(main_substations)} ПС вместо 2")
             # Используем первые 2 подстанции
             main_substations = main_substations[:2]
 
@@ -464,7 +476,7 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
 
                     # return True
             except Exception as e:
-                print(f"Ошибка проверки ЛЭП {line_name}: {e}")
+                _log(f"Ошибка проверки ЛЭП {line_name}: {e}")
                 continue
         # 4. Анализируем результат
         # Считаем параллельной если найдена хотя бы одна параллельная линия
@@ -473,7 +485,7 @@ def _has_parallel_counterparts(app, branch_object) -> bool:
         return is_parallel
 
     except Exception as e:
-        print(f"Ошибка проверки параллельности: {e}")
+        _log(f"Ошибка проверки параллельности: {e}")
         return False
 
 
@@ -559,7 +571,7 @@ def _has_branches(
                     if key in branch_substations_keys:
                         found_branch_substations.append(sub)
         except Exception as e:
-            print(f"Ошибка при проверке ответвлений через подстанции: {e}")
+            _log(f"Ошибка при проверке ответвлений через подстанции: {e}")
 
     # Определяем, есть ли ответвления (через проверку 1 или проверку 2)
     has_branches = has_branches_by_terminals or len(found_branch_substations) > 0
@@ -622,8 +634,8 @@ def get_all_lines_with_indexes(app):
         # Получаем все линии
         all_lines = app.GetCalcRelevantObjects("*.ElmBranch") or []
 
-        print("ВСЕ ЛИНИИ В МОДЕЛИ:")
-        print("=" * 50)
+        _log("ВСЕ ЛИНИИ В МОДЕЛИ:")
+        _log("=" * 50)
 
         lines_info = []
         for index, line in enumerate(all_lines):
@@ -638,15 +650,15 @@ def get_all_lines_with_indexes(app):
                         "object": line,
                     }
                 )
-                print(f"[{index:3d}] {line_name} ({line_class})")
+                _log(f"[{index:3d}] {line_name} ({line_class})")
             except Exception as e:
-                print(f"[{index:3d}] Ошибка: {e}")
+                _log(f"[{index:3d}] Ошибка: {e}")
 
-        print(f"Всего линий: {len(lines_info)}")
+        _log(f"Всего линий: {len(lines_info)}")
         return lines_info
 
     except Exception as e:
-        print(f"Ошибка при получении линий: {e}")
+        _log(f"Ошибка при получении линий: {e}")
         return []
 
 
@@ -654,46 +666,46 @@ def test_powerfactory_functions(app):
     """
     Простой тест для проверки работоспособности функций PowerFactory
     """
-    print("=== ТЕСТИРОВАНИЕ ФУНКЦИЙ POWERFACTORY ===\n")
+    _log("=== ТЕСТИРОВАНИЕ ФУНКЦИЙ POWERFACTORY ===\n")
 
     try:
         # 1. Тест get_pf_line - получение ЛЭП по имени
-        print("1. Тест get_pf_line:")
+        _log("1. Тест get_pf_line:")
         line_name = "227"  # Замените на реальное имя ЛЭП из вашей модели
         pf_line = get_pf_line(app, line_name)
         if pf_line:
-            print(f"   ✅ Найдена ЛЭП: {pf_line}")
+            _log(f"   ✅ Найдена ЛЭП: {pf_line}")
             line_data = get_pf_line_data(pf_line)
-            print(f"   📊 Данные ЛЭП: {line_data}")
+            _log(f"   📊 Данные ЛЭП: {line_data}")
         else:
-            print(f"   ❌ ЛЭП '{line_name}' не найдена")
-        print()
+            _log(f"   ❌ ЛЭП '{line_name}' не найдена")
+        _log("")
 
         # 2. Тест get_powerfactory_object_by_full_name
-        print("2. Тест get_powerfactory_object_by_full_name:")
+        _log("2. Тест get_powerfactory_object_by_full_name:")
         full_name = "ВЛ 110 Власиха-Светлая"  # Пример полного имени
         full_name_obj = get_powerfactory_object_by_full_name(app, full_name)
         if full_name_obj:
-            print(
+            _log(
                 f"   ✅ Найден объект по полному имени: {full_name_obj.GetAttribute('loc_name')}"
             )
         else:
-            print(f"   ❌ Объект '{full_name}' не найден")
-        print()
+            _log(f"   ❌ Объект '{full_name}' не найден")
+        _log("")
 
         # 3. Тест get_pf_substation - получение подстанции
-        print("3. Тест get_pf_substation:")
+        _log("3. Тест get_pf_substation:")
         substation_name = (
             "ПС 500 кВ Усть-Илимская ГЭС"  # Замените на реальное имя подстанции
         )
         pf_substation = get_pf_substation(app, substation_name)
         if pf_substation:
-            print(f"   ✅ Найдена подстанция: {pf_substation.GetAttribute('loc_name')}")
+            _log(f"   ✅ Найдена подстанция: {pf_substation.GetAttribute('loc_name')}")
         else:
-            print(f"   ❌ Подстанция '{substation_name}' не найдена")
-        print()
+            _log(f"   ❌ Подстанция '{substation_name}' не найдена")
+        _log("")
     except Exception:
-        print("У Артема все плохо")
+        _log("У Артема все плохо")
 
 
 # Получаем список всех ElmBranch в модели (ленивая инициализация)
@@ -709,43 +721,43 @@ def test_branch_functions(app, index: int):
     branches = app.GetCalcRelevantObjects("*.ElmBranch")
     branch = branches[index]
     br_name = branch.GetAttribute("loc_name")
-    print(f"\n=== ТЕСТИРОВАНИЕ BRANCH[{index}] : {br_name} ===\n")
+    _log(f"\n=== ТЕСТИРОВАНИЕ BRANCH[{index}] : {br_name} ===\n")
 
     # --- тест 1 ---
-    print("▶ Проверка валидности:")
-    print(_validate_branch_object(app, branch))
+    _log("▶ Проверка валидности:")
+    _log(str(_validate_branch_object(app, branch)))
 
     # --- тест 2 ---
-    print("\n▶ Линии ElmLne внутри ветви:")
+    _log("\n▶ Линии ElmLne внутри ветви:")
     lines = get_lines_from_branch(app, branch)
     for ln in lines:
-        print(" •", ln, ln.GetAttribute("loc_name"))
+        _log(f" • {ln} {ln.GetAttribute('loc_name')}")
 
     # --- тест 3 ---
-    print("\n▶ Терминалы ElmTerm внутри ветви:")
+    _log("\n▶ Терминалы ElmTerm внутри ветви:")
     terms = get_terms_from_branch(app, branch)
     for t in terms:
-        print(" •", t, "iUsage=", t.GetAttribute("iUsage"))
+        _log(f" • {t} iUsage= {t.GetAttribute('iUsage')}")
 
     # --- тест 4 ---
-    print("\n▶ Подстанции на концах ЛЭП:")
+    _log("\n▶ Подстанции на концах ЛЭП:")
     end_subs = _get_main_substations_with_voltage(branch, app)
-    print(end_subs)
+    _log(str(end_subs))
 
     # --- тест 5 ---
-    print("\n▶ Все подстанции:")
+    _log("\n▶ Все подстанции:")
     end_subs_and_tap = _get_line_end_substations(branch, app)
-    print(end_subs_and_tap)
+    _log(str(end_subs_and_tap))
 
     # --- тест 6 ---
-    print("\n▶ Проверка наличия ответвлений:")
-    print(_has_branches(app, branch))
+    _log("\n▶ Проверка наличия ответвлений:")
+    _log(str(_has_branches(app, branch)))
 
     # --- тест 7 ---
-    print("\n▶ Определение типа ЛЭП:")
-    print(get_line_type(app, branch))
+    _log("\n▶ Определение типа ЛЭП:")
+    _log(str(get_line_type(app, branch)))
 
-    print("\n=== Тест завершён ===\n")
+    _log("\n=== Тест завершён ===\n")
 
 
 # Использование

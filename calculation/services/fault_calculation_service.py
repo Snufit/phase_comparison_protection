@@ -1,10 +1,12 @@
 from typing import List, Dict, Union, Set
+import os
 
 from calculation.models import FaultCalculation, CalculationMeta
 from calculation.services.powerfactory_locator import (
     get_pf_line,
     get_pf_substation,
     get_powerfactory_object_by_full_name,
+    get_lines_from_branch,
 )
 from calculation.services.sensitivity_fault_map import (
     SensitivityFaultMap,
@@ -27,6 +29,58 @@ class FaultCalculationService:
 
     # Виды КЗ в PowerFactory (полный список)
     FAULTS = {"3psc": "К(3)", "2psc": "К(2)", "2pgf": "К(1,1)", "spgf": "К(1)"}
+
+    # Путь к файлу логов
+    LOG_FILE_PATH = os.path.join(
+        os.path.dirname(__file__), "Result.md"
+    )
+    # Флаг инициализации файла логов
+    _log_file_initialized = False
+    # ID последнего расчета, для которого был очищен файл
+    _last_calculation_meta_id = None
+
+    @classmethod
+    def reset_log_file(cls):
+        """
+        Сбрасывает флаг инициализации файла логов, чтобы при следующем вызове _log файл был очищен.
+        Используется при начале нового расчета.
+        """
+        cls._log_file_initialized = False
+
+    @classmethod
+    def _init_log_file(cls):
+        """
+        Инициализирует файл логов: очищает его при первом вызове.
+        """
+        if not cls._log_file_initialized:
+            try:
+                # Очищаем файл при первом вызове (режим 'w' для перезаписи)
+                with open(cls.LOG_FILE_PATH, 'w', encoding='utf-8') as f:
+                    pass  # Просто очищаем файл
+                cls._log_file_initialized = True
+            except Exception as e:
+                print(f"[ERROR] Не удалось инициализировать файл логов: {e}")
+
+    @classmethod
+    def _log(cls, message: str):
+        """
+        Записывает сообщение в файл логов и в консоль.
+        
+        Args:
+            message: Сообщение для логирования
+        """
+        # Инициализируем файл при первом вызове
+        cls._init_log_file()
+        
+        # Выводим в консоль
+        print(message)
+        
+        # Записываем в файл (режим 'a' для добавления)
+        try:
+            with open(cls.LOG_FILE_PATH, 'a', encoding='utf-8') as f:
+                f.write(message + '\n')
+        except Exception as e:
+            print(f"[ERROR] Не удалось записать в файл логов: {e}")
 
 
     def perform_fault_calculation(
@@ -67,20 +121,20 @@ class FaultCalculationService:
         organs_info = self._get_organs_info_for_location(
             FAULT_LOCATION_OPPOSITE_END)
 
-        print(
+        self._log(
             f"[DEBUG] ========== Моделирование КЗ на противоположном конце =========="
         )
-        print(
+        self._log(
             f"[DEBUG] Полукомплект: {protection_half_set} (ID: {protection_half_set.id})"
         )
-        print(f"[DEBUG] ЛЭП: {line_pf_name}")
-        print(f"[DEBUG] Место КЗ: {fault_terminal_name}")
-        print(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
+        self._log(f"[DEBUG] ЛЭП: {line_pf_name}")
+        self._log(f"[DEBUG] Место КЗ: {fault_terminal_name}")
+        self._log(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
         if organs_info:
-            print(f"[DEBUG] Органы, требующие эти типы КЗ:")
+            self._log(f"[DEBUG] Органы, требующие эти типы КЗ:")
             for organ_name, fault_types in organs_info.items():
-                print(f"[DEBUG]   - {organ_name}: {fault_types}")
-        print(f"[DEBUG] Количество подрежимов: {len(submodes)}")
+                self._log(f"[DEBUG]   - {organ_name}: {fault_types}")
+        self._log(f"[DEBUG] Количество подрежимов: {len(submodes)}")
 
         # Перебираем подрежимы
         total_faults = 0
@@ -112,8 +166,8 @@ class FaultCalculationService:
                 if not fault_type:
                     continue
 
-                print(f"[DEBUG] --- Подрежим: {submode_name} ---")
-                print(
+                self._log(f"[DEBUG] --- Подрежим: {submode_name} ---")
+                self._log(
                     f"[DEBUG] Моделирование КЗ типа: {fault_type} ({pf_fault_type})")
 
                 fault_values = self._execute_fault(
@@ -140,14 +194,14 @@ class FaultCalculationService:
             self._disconnect_submode_elements(submode_elements, False)
 
             faults_in_submode = len(required_fault_types)
-            print(
+            self._log(
                 f"[DEBUG] Подрежим '{submode_name}' ({idx}/{len(submodes)}): выполнено {faults_in_submode} расчетов КЗ"
             )
 
-        print(
+        self._log(
             f"[DEBUG] ========== Завершено моделирование КЗ на противоположном конце =========="
         )
-        print(
+        self._log(
             f"[DEBUG] Всего выполнено расчетов КЗ: {total_faults} (подрежимов: {len(submodes)}, типов КЗ: {len(required_fault_types)})"
         )
 
@@ -194,18 +248,23 @@ class FaultCalculationService:
         organs_info = self._get_organs_info_for_location(
             FAULT_LOCATION_BRANCHES)
 
-        print(f"[DEBUG] ========== Моделирование КЗ на ответвлениях ==========")
-        print(
+        self._log(f"[DEBUG] ========== Моделирование КЗ на ответвлениях ==========")
+        self._log(
             f"[DEBUG] Полукомплект: {protection_half_set} (ID: {protection_half_set.id})"
         )
-        print(f"[DEBUG] ЛЭП: {line_pf_name}")
-        print(f"[DEBUG] Количество активных ответвлений: {branches.count()}")
-        print(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
+        self._log(f"[DEBUG] ЛЭП: {line_pf_name}")
+        self._log(f"[DEBUG] Количество активных ответвлений: {branches.count()}")
+        self._log(f"[DEBUG] Необходимые типы КЗ: {required_fault_types}")
         if organs_info:
-            print(f"[DEBUG] Органы, требующие эти типы КЗ:")
+            self._log(f"[DEBUG] Органы, требующие эти типы КЗ:")
             for organ_name, fault_types in organs_info.items():
-                print(f"[DEBUG]   - {organ_name}: {fault_types}")
-        print(f"[DEBUG] Количество подрежимов: {len(submodes)}")
+                self._log(f"[DEBUG]   - {organ_name}: {fault_types}")
+        self._log(f"[DEBUG] Количество подрежимов: {len(submodes)}")
+        if submodes:
+            self._log(f"[DEBUG] Список подрежимов:")
+            for idx, submode in enumerate(submodes, 1):
+                submode_name = submode.get("submode_name", "Не указано")
+                self._log(f"[DEBUG]   {idx}. {submode_name}")
 
         # Перебираем подрежимы
         total_faults = 0
@@ -235,12 +294,12 @@ class FaultCalculationService:
                 # Получаем имя подстанции ответвления
                 branch_substation_name = branch.pf_name_substation
 
-                print(
+                self._log(
                     f"[DEBUG] Обработка ответвления: {branch_substation_name}")
 
                 if not branch_substation_name:
                     # Если имя подстанции не указано, пропускаем
-                    print(
+                    self._log(
                         f"[DEBUG] Пропущено ответвление: имя подстанции не указано")
                     continue
 
@@ -249,30 +308,30 @@ class FaultCalculationService:
                     pf_branch_substation = get_pf_substation(app, branch_substation_name)
 
                     if not pf_branch_substation:
-                        print(
+                        self._log(
                             f"[ERROR] Не найдена подстанция '{branch_substation_name}' в PowerFactory"
                         )
                         continue
 
-                    print(
+                    self._log(
                         f"[DEBUG] Найдена подстанция '{branch_substation_name}' в PowerFactory"
                     )
 
                     # Находим терминал на подстанции ответвления, подключенный к линии
                     branch_terminal = FaultCalculationService._get_branch_terminal(
-                        pf_line, pf_branch_substation
+                        pf_line, pf_branch_substation, app
                     )
 
                     if not branch_terminal:
                         # Если терминал не найден, пропускаем это ответвление
-                        print(
+                        self._log(
                             f"[WARNING] Терминал на подстанции '{branch_substation_name}' не найден, пропускаем ответвление"
                         )
                         continue
 
                     branch_terminal_name = branch_terminal.GetAttribute(
                         "loc_name")
-                    print(
+                    self._log(
                         f"[DEBUG] Найден терминал '{branch_terminal_name}' на подстанции '{branch_substation_name}'"
                     )
 
@@ -280,21 +339,21 @@ class FaultCalculationService:
                     fault_location = f"Ответвление: {branch_substation_name}"
 
                     # Выполняем расчет КЗ для всех необходимых типов
-                    print(
+                    self._log(
                         f"[DEBUG] Начинаем расчет КЗ для ответвления '{branch_substation_name}': {len(required_fault_types)} типов"
                     )
                     for pf_fault_type in required_fault_types:
                         fault_type = self.FAULTS.get(pf_fault_type)
                         if not fault_type:
-                            print(
+                            self._log(
                                 f"[DEBUG] Пропущен тип КЗ {pf_fault_type}: не найден в словаре FAULTS"
                             )
                             continue
 
-                        print(
+                        self._log(
                             f"[DEBUG] --- Подрежим: {submode_name}, Ответвление: {branch_substation_name} ---"
                         )
-                        print(
+                        self._log(
                             f"[DEBUG] Моделирование КЗ типа: {fault_type} ({pf_fault_type})"
                         )
 
@@ -318,16 +377,16 @@ class FaultCalculationService:
                                 fault_values,
                             )
                             total_faults += 1
-                            print(
+                            self._log(
                                 f"[DEBUG] ✓ Успешно выполнено и сохранено КЗ {fault_type} на ответвлении {branch_substation_name}"
                             )
                         except Exception as e:
                             import traceback
 
-                            print(
+                            self._log(
                                 f"[ERROR] Ошибка при выполнении КЗ {fault_type} на ответвлении {branch_substation_name}: {e}"
                             )
-                            print(
+                            self._log(
                                 f"[ERROR] Traceback: {traceback.format_exc()}")
                             # Продолжаем для следующего типа КЗ
                             continue
@@ -337,25 +396,25 @@ class FaultCalculationService:
                     # Логируем ошибку, но продолжаем для других ответвлений
                     import traceback
 
-                    print(
+                    self._log(
                         f"[ERROR] Ошибка при расчете КЗ на ответвлении {branch_substation_name}: {e}"
                     )
-                    print(f"[ERROR] Traceback: {traceback.format_exc()}")
+                    self._log(f"[ERROR] Traceback: {traceback.format_exc()}")
                     continue
 
             # Включаем объекты подрежима обратно
             self._disconnect_submode_elements(submode_elements, False)
 
             faults_in_submode = len(required_fault_types) * branches.count()
-            print(
+            self._log(
                 f"[DEBUG] Подрежим '{submode_name}' ({idx}/{len(submodes)}): выполнено {faults_in_submode} расчетов КЗ "
                 f"({len(required_fault_types)} типов × {branches.count()} ответвлений)"
             )
 
-        print(
+        self._log(
             f"[DEBUG] ========== Завершено моделирование КЗ на ответвлениях =========="
         )
-        print(
+        self._log(
             f"[DEBUG] Всего выполнено расчетов КЗ: {total_faults} "
             f"(подрежимов: {len(submodes)}, типов КЗ: {len(required_fault_types)}, ответвлений: {branches.count()})"
         )
@@ -399,7 +458,7 @@ class FaultCalculationService:
             fault_values=fault_values,
         )
 
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] ✓ Сохранено в БД: {fault_type} на {fault_location_str}, подрежим '{submode_name}'"
         )
 
@@ -416,109 +475,110 @@ class FaultCalculationService:
                 return terminal
 
     @staticmethod
-    def _get_branch_terminal(pf_line, pf_branch_substation):
+    def _get_branch_terminal(pf_line, pf_branch_substation, app=None):
         """
-        Находит терминал на подстанции ответвления, подключенный к линии.
+        Находит терминал на подстанции ответвления с атрибутом iUsage == 0 (Шина),
+        связанный с линией через ElmLne.
 
         Args:
-            pf_line: Объект линии в PowerFactory
+            pf_line: Объект ElmBranch (линия) в PowerFactory
             pf_branch_substation: Объект подстанции ответвления в PowerFactory
+            app: Объект приложения PowerFactory (опционально, для получения ElmLne)
 
         Returns:
-            Терминал на подстанции ответвления или None, если не найден
+            Терминал на подстанции ответвления с iUsage == 0, связанный с линией, или None, если не найден
         """
         if not pf_branch_substation:
             return None
 
-        # Получаем имя подстанции ответвления для сравнения
-        branch_substation_name = pf_branch_substation.GetAttribute("loc_name")
-        if not branch_substation_name:
-            print(f"[DEBUG] У подстанции ответвления нет имени (loc_name)")
+        if not pf_line:
             return None
 
-        print(
-            f"[DEBUG] Поиск терминала на подстанции '{branch_substation_name}' для линии '{pf_line.GetAttribute('loc_name')}'"
+        # Получаем имя подстанции ответвления для логирования
+        branch_substation_name = pf_branch_substation.GetAttribute("loc_name")
+        if not branch_substation_name:
+            FaultCalculationService._log(f"[DEBUG] У подстанции ответвления нет имени (loc_name)")
+            return None
+
+        line_name = pf_line.GetAttribute("loc_name")
+        FaultCalculationService._log(
+            f"[DEBUG] Поиск терминала на подстанции '{branch_substation_name}' для линии '{line_name}'"
         )
 
-        # Сначала пробуем найти терминал напрямую через GetConnectedElements на линии
-        line_terminals = pf_line.GetConnectedElements()
-        if line_terminals:
-            print(f"[DEBUG] Найдено терминалов на линии: {len(line_terminals)}")
-            for terminal in line_terminals:
-                try:
-                    # Определяем подстанцию, которой принадлежит узел
-                    substation = terminal.GetParent()
-
-                    if not substation:
-                        continue
-
-                    # Сравниваем по имени подстанции (более надежно, чем сравнение объектов)
-                    substation_name = substation.GetAttribute("loc_name")
-
-                    print(
-                        f"[DEBUG] Проверка терминала '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
-                    )
-
-                    # Возвращаем терминал, если он принадлежит подстанции ответвления
-                    if substation_name == branch_substation_name:
-                        print(
-                            f"[DEBUG] ✓ Найден терминал '{terminal.GetAttribute('loc_name')}' на подстанции '{substation_name}'"
-                        )
-                        return terminal
-                except Exception as e:
-                    print(f"[DEBUG] Ошибка при проверке терминала: {e}")
-                    continue
-
-        # Если терминал не найден напрямую, ищем все терминалы на подстанции ответвления
-        # и проверяем их связь с линией через промежуточные объекты
-        print(f"[DEBUG] Поиск терминалов на подстанции '{branch_substation_name}'...")
+        # Получаем все ElmLne данной линии (ElmBranch)
         try:
-            substation_terminals = pf_branch_substation.GetContents("*.ElmTerm")
-            if not substation_terminals:
-                print(f"[DEBUG] На подстанции '{branch_substation_name}' нет терминалов")
+            elm_lines = get_lines_from_branch(app, pf_line) if app else []
+            if not elm_lines:
+                FaultCalculationService._log(f"[DEBUG] Не найдено ElmLne в линии '{line_name}'")
                 return None
 
-            print(f"[DEBUG] Найдено терминалов на подстанции: {len(substation_terminals)}")
+            FaultCalculationService._log(f"[DEBUG] Найдено ElmLne в линии '{line_name}': {len(elm_lines)}")
+            for elm_line in elm_lines:
+                elm_line_name = elm_line.GetAttribute("loc_name")
+                FaultCalculationService._log(f"[DEBUG]   - ElmLne: {elm_line_name}")
 
-            # Получаем все связанные элементы с линией для проверки связи
-            line_connected_elements = pf_line.GetConnectedElements() or []
-
-            # Проверяем каждый терминал на подстанции
-            for terminal in substation_terminals:
+            # Собираем все терминалы, подключенные к ElmLne
+            # и проверяем, какие из них находятся на подстанции ответвления
+            matching_terminal = None
+            for elm_line in elm_lines:
                 try:
-                    terminal_name = terminal.GetAttribute("loc_name")
-                    print(f"[DEBUG] Проверка терминала '{terminal_name}' на подстанции '{branch_substation_name}'")
-
-                    # Получаем все связанные элементы терминала
-                    terminal_connected = terminal.GetConnectedElements() or []
-
-                    # Проверяем, связан ли терминал с линией через промежуточные объекты
-                    # Ищем общие связанные элементы или проверяем прямое подключение
-                    for connected_elem in terminal_connected:
-                        # Если терминал связан с элементом, который также связан с линией
-                        if connected_elem in line_connected_elements:
-                            print(
-                                f"[DEBUG] ✓ Найден терминал '{terminal_name}' на подстанции '{branch_substation_name}', "
-                                f"связанный с линией через промежуточный объект"
+                    # Получаем подключенные элементы к ElmLne (терминалы)
+                    connected_elements = elm_line.GetConnectedElements() or []
+                    
+                    for term in connected_elements:
+                        if term.GetClassName() != "ElmTerm":
+                            continue
+                        
+                        try:
+                            # Проверяем, что терминал является шиной (iUsage == 0)
+                            iusage = term.GetAttribute("iUsage")
+                            if iusage != 0:
+                                continue
+                            
+                            # Получаем родительский объект терминала (подстанция)
+                            term_parent = term.GetParent()
+                            if not term_parent or term_parent != pf_branch_substation:
+                                continue
+                            
+                            # Найден терминал-шина на подстанции ответвления
+                            terminal_name = term.GetAttribute("loc_name")
+                            matching_terminal = term
+                            FaultCalculationService._log(
+                                f"[DEBUG] ✓ Найден терминал-шина '{terminal_name}' на подстанции '{branch_substation_name}', "
+                                f"связанный с линией '{line_name}' через ElmLne '{elm_line_name}'"
                             )
-                            return terminal
-
-                    # Также проверяем прямое подключение терминала к линии
-                    if pf_line in terminal_connected:
-                        print(
-                            f"[DEBUG] ✓ Найден терминал '{terminal_name}' на подстанции '{branch_substation_name}', "
-                            f"напрямую подключенный к линии"
-                        )
-                        return terminal
-
+                            break
+                            
+                        except Exception as e:
+                            FaultCalculationService._log(f"[DEBUG] Ошибка при проверке терминала из ElmLne: {e}")
+                            continue
+                    
+                    if matching_terminal:
+                        break
+                        
                 except Exception as e:
-                    print(f"[DEBUG] Ошибка при проверке терминала: {e}")
+                    FaultCalculationService._log(f"[DEBUG] Ошибка при обработке ElmLne '{elm_line.GetAttribute('loc_name')}': {e}")
                     continue
 
         except Exception as e:
-            print(f"[DEBUG] Ошибка при получении терминалов подстанции: {e}")
+            FaultCalculationService._log(f"[DEBUG] Ошибка при получении ElmLne из линии: {e}")
+            return None
 
-        print(
+        # Возвращаем найденный терминал
+        if matching_terminal:
+            terminal_name = matching_terminal.GetAttribute("loc_name")
+            FaultCalculationService._log(
+                f"[DEBUG] ✓ Выбран терминал-шина '{terminal_name}' для моделирования КЗ "
+                f"на подстанции '{branch_substation_name}'"
+            )
+            return matching_terminal
+        else:
+            FaultCalculationService._log(
+                f"[DEBUG] ✗ На подстанции '{branch_substation_name}' не найдено терминалов-шин "
+                f"с атрибутом iUsage == 0, связанных с линией '{line_name}'"
+            )
+
+        FaultCalculationService._log(
             f"[DEBUG] ✗ Терминал на подстанции '{branch_substation_name}' не найден"
         )
         return None
@@ -590,9 +650,9 @@ class FaultCalculationService:
         location_str = fault_location if fault_location else "не указано"
         submode_str = submode_name if submode_name else "не указано"
 
-        print(f"[DEBUG] Результаты КЗ {fault_type_ru}:")
-        print(f"[DEBUG]   Место: {location_str}")
-        print(f"[DEBUG]   Подрежим: {submode_str}")
+        self._log(f"[DEBUG] Результаты КЗ {fault_type_ru}:")
+        self._log(f"[DEBUG]   Место: {location_str}")
+        self._log(f"[DEBUG]   Подрежим: {submode_str}")
         # Значения из PowerFactory в кА, преобразуем для отображения
         i1_ka = pos_sequence_current
         i1_a = i1_ka * 1000  # кА → А
@@ -600,15 +660,15 @@ class FaultCalculationService:
         i2_a = i2_ka * 1000  # кА → А
         i0_ka = triple_zero_sequence_current
         i0_a = i0_ka * 1000  # кА → А
-        print(
+        self._log(
             f"[DEBUG]   I1 = {results['I1']:.2f} А ({i1_ka:.3f} кА)")
-        print(
+        self._log(
             f"[DEBUG]   I2 = {results['I2']:.2f} А ({i2_ka:.3f} кА)")
-        print(
+        self._log(
             f"[DEBUG]   3I0 = {results['3I0']:.2f} А ({i0_ka:.3f} кА)")
-        print(f"[DEBUG]   U2 = {results['U2']:.2f} кВ")
-        print(f"[DEBUG]   U1 = {results['U1']:.2f} кВ")
-        print(f"[DEBUG]   3U0 = {results['3U0']:.2f} кВ")
+        self._log(f"[DEBUG]   U2 = {results['U2']:.2f} кВ")
+        self._log(f"[DEBUG]   U1 = {results['U1']:.2f} кВ")
+        self._log(f"[DEBUG]   3U0 = {results['3U0']:.2f} кВ")
 
         # Удаляем ссылку на COM
         del fault

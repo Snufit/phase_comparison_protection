@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Callable, Dict, Tuple
 
 from calculation.models import CalculationMeta, FaultCalculation, SettingsCalculation
+from calculation.services.fault_calculation_service import FaultCalculationService
 from core.models import Component, ProtectionHalfSet
 
 
@@ -126,7 +127,7 @@ class SettingsCalculationService:
             secondary_value = primary_value / self.current_transformer_ratio
 
         # Логируем сохранение для диагностики
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] Сохранение результата: Орган={component.setting_designation}, Полукомплект={protection_half_set}, CalculationMeta ID={self.calculation_meta.id}, Значение={result_value}"
         )
 
@@ -294,9 +295,9 @@ class SettingsCalculationService:
                     is_active=True).exists()
 
         if has_branches:
-            k_otv = 1.5
+            k_otv = 1.2
             il_break_value = il_break_value * k_otv
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Для IЛ ОТКЛ применен коэффициент ответвления = {k_otv}")
 
         calculation_factors = {
@@ -540,9 +541,9 @@ class SettingsCalculationService:
                     is_active=True).exists()
 
         if has_branches:
-            k_otv = 1.5
+            k_otv = 1.2
             i2_break_value = i2_break_value * k_otv
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Для I2 ОТКЛ применен коэффициент ответвления = {k_otv}")
 
         calculation_factors = {
@@ -1064,7 +1065,7 @@ class SettingsCalculationService:
             except Exception as e:
                 # Если ошибка при расчете для ответвления, пропускаем
                 # Логируем ошибку, но продолжаем для других ответвлений
-                print(
+                FaultCalculationService._log(
                     f"Ошибка при расчете Xтр БНТ уст для ответвления {branch}: {e}")
                 continue
 
@@ -1259,10 +1260,10 @@ class SettingsCalculationService:
         return 1.75 if steel_type == "cold" else 2.65
 
     def run(self) -> None:
-        print(f"[DEBUG] SettingsCalculationService.run() начат")
-        print(
+        FaultCalculationService._log(f"[DEBUG] SettingsCalculationService.run() начат")
+        FaultCalculationService._log(
             f"[DEBUG] Количество полукомплектов: {self.protection_half_sets.count()}")
-        print(f"[DEBUG] calculation_factors: {self.calculation_factors}")
+        FaultCalculationService._log(f"[DEBUG] calculation_factors: {self.calculation_factors}")
 
         # Специальная обработка для коэффициента манипуляции:
         # Сначала собираем все рассчитанные значения для всех полукомплектов,
@@ -1278,21 +1279,21 @@ class SettingsCalculationService:
             self.current_protection_half_set = protection_half_set
 
             protection_device = protection_half_set.protection_device
-            print(f"[DEBUG] Полукомплект: {protection_half_set}")
-            print(
+            FaultCalculationService._log(f"[DEBUG] Полукомплект: {protection_half_set}")
+            FaultCalculationService._log(
                 f"[DEBUG] Устройство защиты: {protection_device} (ID: {protection_device.id})"
             )
 
             components = protection_device.components.all()
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Компонентов у устройства '{protection_device}': {components.count()}"
             )
 
             if components.count() == 0:
-                print(
+                FaultCalculationService._log(
                     f"[WARNING] У устройства защиты '{protection_device}' нет связанных компонентов!"
                 )
-                print(
+                FaultCalculationService._log(
                     f"[WARNING] Необходимо добавить компоненты к устройству защиты через админ-панель Django или команду управления."
                 )
                 # Продолжаем для следующего полукомплекта
@@ -1333,7 +1334,7 @@ class SettingsCalculationService:
                         is_enabled = self.enabled_organs.get(organ_name, False)
 
                     if not is_enabled:
-                        print(
+                        FaultCalculationService._log(
                             f"[DEBUG] Орган {organ_name} отключен, пропускаем расчет")
                         continue
 
@@ -1348,7 +1349,7 @@ class SettingsCalculationService:
                             manipulation_factor_components.append(
                                 (protection_half_set, component, factors)
                             )
-                            print(
+                            FaultCalculationService._log(
                                 f"[DEBUG] Собрано значение K МАН для {component.setting_designation}: {result}"
                             )
                         else:
@@ -1361,18 +1362,18 @@ class SettingsCalculationService:
                                 result_value=result,
                             )
                             total_saved += 1
-                            print(
+                            FaultCalculationService._log(
                                 f"[DEBUG] Сохранен результат для {component.setting_designation}: {result}"
                             )
                     except Exception as e:
-                        print(
+                        FaultCalculationService._log(
                             f"[ERROR] Ошибка при расчете для {component.setting_designation}: {e}"
                         )
                         import traceback
 
-                        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+                        FaultCalculationService._log(f"[ERROR] Traceback: {traceback.format_exc()}")
                 else:
-                    print(
+                    FaultCalculationService._log(
                         f"[WARNING] Отсутствует расчетный модуль для органа {component.setting_designation}"
                     )
 
@@ -1395,7 +1396,7 @@ class SettingsCalculationService:
                 # Если коэффициент больше 10, приравниваем к 10
                 final_manipulation_factor = 10.0
 
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Максимальное значение K МАН: {max_manipulation_factor}, округлено до: {final_manipulation_factor}"
             )
 
@@ -1413,7 +1414,7 @@ class SettingsCalculationService:
                     result_value=result,
                 )
                 total_saved += 1
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] Сохранен результат K МАН для {component.setting_designation}: {result} (одинаковое для всех полукомплектов)"
                 )
 
@@ -1421,7 +1422,7 @@ class SettingsCalculationService:
         if hasattr(self, "current_protection_half_set"):
             delattr(self, "current_protection_half_set")
 
-        print(f"[DEBUG] Всего сохранено результатов: {total_saved}")
+        FaultCalculationService._log(f"[DEBUG] Всего сохранено результатов: {total_saved}")
 
         # Проверяем, сколько должно быть результатов
         expected_results = 0
@@ -1470,10 +1471,10 @@ class SettingsCalculationService:
                 self.protection_half_sets
             )  # K МАН сохраняется для каждого полукомплекта
 
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] Ожидалось результатов: {expected_results}, фактически сохранено: {total_saved}"
         )
         if expected_results != total_saved:
-            print(
+            FaultCalculationService._log(
                 f"[WARNING] Несоответствие: ожидалось {expected_results} результатов, сохранено {total_saved}"
             )

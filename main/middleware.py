@@ -3,6 +3,21 @@ import getpass
 from django.utils.deprecation import MiddlewareMixin
 
 
+def _log_main(message: str):
+    """
+    Вспомогательная функция для логирования через FaultCalculationService с префиксом [main].
+    
+    Args:
+        message: Сообщение для логирования (будет добавлен префикс [main])
+    """
+    try:
+        from calculation.services.fault_calculation_service import FaultCalculationService
+        FaultCalculationService._log(f"[main] {message}")
+    except ImportError:
+        # Если FaultCalculationService недоступен, просто выводим в консоль
+        print(f"[main] {message}")
+
+
 class ActiveDirectoryAutoAuthMiddleware(MiddlewareMixin):
     """
     Middleware для "AD автозаполнение + ручной пароль":
@@ -36,7 +51,7 @@ class ActiveDirectoryAutoAuthMiddleware(MiddlewareMixin):
                 pass
 
         except Exception as e:
-            print(f"[DEBUG] Ошибка при получении имени пользователя Windows: {e}")
+            _log_main(f"[DEBUG] Ошибка при получении имени пользователя Windows: {e}")
 
         username = (username or "").strip() or None
         domain = (domain or "").strip() or None

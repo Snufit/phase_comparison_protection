@@ -55,7 +55,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
     pf_manager = PowerFactoryManager()
 
     def get(self, request):
-        print(f"User is authenticated: {request.user.is_authenticated}")
+        FaultCalculationService._log(f"User is authenticated: {request.user.is_authenticated}")
 
         # Получаем проект из сессии для фильтрации данных
         project_name = request.session.get("pf_project_name")
@@ -167,7 +167,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             half_set1_submodes = request.session.get("half_set1_submodes")
             half_set2_submodes = request.session.get("half_set2_submodes")
 
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] Подрежимы из сессии - half_set1: {half_set1_submodes is not None}, half_set2: {half_set2_submodes is not None}"
         )
 
@@ -190,7 +190,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     # Сохраняем в сессию для последующих запросов
                     request.session["half_set1_submodes"] = half_set1_submodes
             except Exception as e:
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set1: {e}"
                 )
 
@@ -212,7 +212,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     # Сохраняем в сессию для последующих запросов
                     request.session["half_set2_submodes"] = half_set2_submodes
             except Exception as e:
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] Ошибка при загрузке подрежимов из БД для half_set2: {e}"
                 )
 
@@ -808,8 +808,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             half_set1_submodes_data = submodes_form1.cleaned_data
             half_set2_submodes_data = submodes_form2.cleaned_data
 
-            print(half_set1_submodes_data)
-            print(half_set2_submodes_data)
+            FaultCalculationService._log(str(half_set1_submodes_data))
+            FaultCalculationService._log(str(half_set2_submodes_data))
 
             half_set1_topology = request.session.get("half_set1_topology")
             half_set2_topology = request.session.get("half_set2_topology")
@@ -848,8 +848,8 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 use_cache=True,
             )
 
-            print(half_set1_submodes)
-            print(half_set2_submodes)
+            FaultCalculationService._log(str(half_set1_submodes))
+            FaultCalculationService._log(str(half_set2_submodes))
 
             # Сохраняем подрежимы в сессии
             # Убеждаемся, что подрежимы - это список словарей (сериализуемый формат)
@@ -879,7 +879,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                             }
                         )
                 request.session["half_set1_submodes"] = half_set1_submodes_list
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] Сохранено подрежимов для half_set1: {len(half_set1_submodes_list)}"
                 )
 
@@ -909,16 +909,16 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                             }
                         )
                 request.session["half_set2_submodes"] = half_set2_submodes_list
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] Сохранено подрежимов для half_set2: {len(half_set2_submodes_list)}"
                 )
 
             # Явно сохраняем сессию
             request.session.modified = True
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Сессия сохранена. half_set1_submodes в сессии: {request.session.get('half_set1_submodes') is not None}"
             )
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Сессия сохранена. half_set2_submodes в сессии: {request.session.get('half_set2_submodes') is not None}"
             )
 
@@ -978,11 +978,11 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         # Логируем выбор ДДТН
         if "load_current" in calculation_factors:
             load_current_value = calculation_factors["load_current"]
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Пользователь выбрал ДДТН (длительно допустимый рабочий ток): {load_current_value} А"
             )
 
-        print(f"[DEBUG] Сохраненные коэффициенты: {calculation_factors}")
+        FaultCalculationService._log(f"[DEBUG] Сохраненные коэффициенты: {calculation_factors}")
         request.session["calculation_factors"] = calculation_factors
         request.session.modified = True
         messages.success(
@@ -1023,7 +1023,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         return redirect("calculation")
 
     def calculate_settings(self, request):
-        print("Начало расчета")
+        FaultCalculationService._log("Начало расчета")
         half_set1_submodes = request.session.get("half_set1_submodes")
         half_set2_submodes = request.session.get("half_set2_submodes")
         calculation_factors = request.session.get("calculation_factors")
@@ -1055,27 +1055,27 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
         # Регистрируем расчет
         # Создаем новый CalculationMeta для каждого расчета
-        print(f"[DEBUG] ========== Создание нового расчета ==========")
-        print(f"[DEBUG] ЛЭП: {line} (ID: {line.id})")
-        print(f"[DEBUG] Пользователь: {request.user}")
+        FaultCalculationService._log(f"[DEBUG] ========== Создание нового расчета ==========")
+        FaultCalculationService._log(f"[DEBUG] ЛЭП: {line} (ID: {line.id})")
+        FaultCalculationService._log(f"[DEBUG] Пользователь: {request.user}")
 
         # Проверяем, есть ли старые расчеты для этой ЛЭП
         old_calculations = CalculationMeta.objects.filter(line=line).order_by(
             "-calculation_date"
         )
         if old_calculations.exists():
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Найдено старых расчетов для этой ЛЭП: {old_calculations.count()}"
             )
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Последний старый расчет: ID={old_calculations.first().id}, Дата={old_calculations.first().calculation_date}"
             )
 
         calculation_meta = CalculationMeta.objects.create(line=line, user=request.user)
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] ✓ Создан новый расчет: ID={calculation_meta.id}, ЛЭП={line}, Дата={calculation_meta.calculation_date}"
         )
-        print(f"[DEBUG] ============================================")
+        FaultCalculationService._log(f"[DEBUG] ============================================")
 
         # Создаем COM-объект PowerFactory
         project_name = request.session.get("pf_project_name")
@@ -1269,41 +1269,41 @@ def calculation_results(request, calculation_meta_id):
     ).order_by("protection_half_set")
 
     # Логируем для диагностики
-    print(f"[DEBUG] ========== Отображение результатов расчета ==========")
-    print(f"[DEBUG] Запрошен calculation_meta_id: {calculation_meta_id}")
-    print(
+    FaultCalculationService._log(f"[DEBUG] ========== Отображение результатов расчета ==========")
+    FaultCalculationService._log(f"[DEBUG] Запрошен calculation_meta_id: {calculation_meta_id}")
+    FaultCalculationService._log(
         f"[DEBUG] Найден CalculationMeta: ID={calculation_meta.id}, ЛЭП={calculation_meta.line}, Дата={calculation_meta.calculation_date}"
     )
-    print(f"[DEBUG] Найдено результатов: {results.count()}")
+    FaultCalculationService._log(f"[DEBUG] Найдено результатов: {results.count()}")
 
     # Проверяем, есть ли результаты для других расчетов (для диагностики)
     all_results_count = SettingsCalculation.objects.filter(
         calculation_meta__line=calculation_meta.line
     ).count()
-    print(
+    FaultCalculationService._log(
         f"[DEBUG] Всего результатов для ЛЭП {calculation_meta.line}: {all_results_count}"
     )
 
     # Дополнительная проверка: логируем первые несколько результатов для проверки
     if results.exists():
-        print(f"[DEBUG] Первые 3 результата:")
+        FaultCalculationService._log(f"[DEBUG] Первые 3 результата:")
         for i, result in enumerate(results[:3], 1):
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG]   {i}. Полукомплект: {result.protection_half_set}, Орган: {result.component}, Значение: {result.result_value}, CalculationMeta ID: {result.calculation_meta.id}"
             )
 
         # Проверяем, все ли результаты принадлежат запрошенному calculation_meta
         wrong_results = results.exclude(calculation_meta=calculation_meta)
         if wrong_results.exists():
-            print(
+            FaultCalculationService._log(
                 f"[ERROR] ОШИБКА: Найдено {wrong_results.count()} результатов с неправильным CalculationMeta!"
             )
             for wrong_result in wrong_results[:3]:
-                print(
+                FaultCalculationService._log(
                     f"[ERROR]   Неправильный результат: ID={wrong_result.id}, CalculationMeta ID={wrong_result.calculation_meta.id} (ожидался {calculation_meta.id})"
                 )
         else:
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] ✓ Все результаты принадлежат запрошенному CalculationMeta ID={calculation_meta.id}"
             )
 
@@ -1311,17 +1311,17 @@ def calculation_results(request, calculation_meta_id):
         unique_organs = results.values_list(
             "component__setting_designation", flat=True
         ).distinct()
-        print(f"[DEBUG] Уникальных органов в результатах: {len(unique_organs)}")
-        print(f"[DEBUG] Список органов: {list(unique_organs)}")
+        FaultCalculationService._log(f"[DEBUG] Уникальных органов в результатах: {len(unique_organs)}")
+        FaultCalculationService._log(f"[DEBUG] Список органов: {list(unique_organs)}")
 
         # Проверяем количество результатов на полукомплект
         for half_set in calculation_meta.line.protection_half_sets.all():
             half_set_results = results.filter(protection_half_set=half_set)
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] Полукомплект {half_set}: {half_set_results.count()} результатов"
             )
     else:
-        print(
+        FaultCalculationService._log(
             f"[WARNING] Нет результатов для calculation_meta_id={calculation_meta_id}"
         )
         # Проверяем, есть ли результаты для других расчетов этой ЛЭП
@@ -1329,7 +1329,7 @@ def calculation_results(request, calculation_meta_id):
             calculation_meta__line=calculation_meta.line
         ).exclude(calculation_meta=calculation_meta)
         if other_results.exists():
-            print(
+            FaultCalculationService._log(
                 f"[WARNING] Найдено {other_results.count()} результатов для других расчетов этой ЛЭП"
             )
             latest_calc = (
@@ -1338,7 +1338,7 @@ def calculation_results(request, calculation_meta_id):
                 .first()
             )
             if latest_calc:
-                print(
+                FaultCalculationService._log(
                     f"[WARNING] Последний расчет для этой ЛЭП: ID={latest_calc.id}, Дата={latest_calc.calculation_date}"
                 )
 
@@ -1361,7 +1361,7 @@ def sensitivity_analysis(request, calculation_meta_id):
     )
 
     # Логируем для диагностики
-    print(
+    FaultCalculationService._log(
         f"[DEBUG] Отображение анализа чувствительности: ID={calculation_meta_id}, ЛЭП={calculation_meta.line}, Найдено записей: {sens_analysis.count()}"
     )
 
@@ -1520,15 +1520,15 @@ def export_calculation_results(request, calculation_meta_id):
     calculations = SettingsCalculation.objects.filter(calculation_meta=calculation_meta).order_by("protection_half_set", "component__setting_designation")
     
     # Логируем для диагностики
-    print(f"[DEBUG] ========== Экспорт результатов расчета ==========")
-    print(f"[DEBUG] Запрошен calculation_meta_id: {calculation_meta_id}")
-    print(f"[DEBUG] Найдено результатов: {calculations.count()}")
+    FaultCalculationService._log(f"[DEBUG] ========== Экспорт результатов расчета ==========")
+    FaultCalculationService._log(f"[DEBUG] Запрошен calculation_meta_id: {calculation_meta_id}")
+    FaultCalculationService._log(f"[DEBUG] Найдено результатов: {calculations.count()}")
     
     # Проверяем наличие U2 БЛОК и U2 ОТКЛ
     u2_results = calculations.filter(component__setting_designation__in=["U2 БЛОК", "U2 ОТКЛ"])
-    print(f"[DEBUG] Найдено результатов U2: {u2_results.count()}")
+    FaultCalculationService._log(f"[DEBUG] Найдено результатов U2: {u2_results.count()}")
     for u2_result in u2_results:
-        print(f"[DEBUG]   U2 результат: {u2_result.component.setting_designation}, Полукомплект: {u2_result.protection_half_set}, Значение: {u2_result.result_value}, Primary: {u2_result.primary_value}, Secondary: {u2_result.secondary_value}")
+        FaultCalculationService._log(f"[DEBUG]   U2 результат: {u2_result.component.setting_designation}, Полукомплект: {u2_result.protection_half_set}, Значение: {u2_result.result_value}, Primary: {u2_result.primary_value}, Secondary: {u2_result.secondary_value}")
 
     # Создаем рабочую книгу
     wb = openpyxl.Workbook()
@@ -1588,15 +1588,15 @@ def get_available_projects_ajax(request):
     """
     try:
         pf_manager = PowerFactoryManager()
-        print(f"[DEBUG] get_available_projects_ajax: начало запроса")
+        FaultCalculationService._log(f"[DEBUG] get_available_projects_ajax: начало запроса")
         projects = pf_manager.get_available_projects()
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] get_available_projects_ajax: получено проектов: {len(projects) if projects else 0}"
         )
 
         # Получаем текущий выбранный проект из сессии
         current_project = request.session.get("pf_project_name")
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] get_available_projects_ajax: текущий проект из сессии: {current_project}"
         )
 
@@ -1605,11 +1605,11 @@ def get_available_projects_ajax(request):
         if current_project:
             try:
                 project_status = pf_manager.check_project_available(current_project)
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] get_available_projects_ajax: статус проекта '{current_project}': {project_status}"
                 )
             except Exception as e:
-                print(
+                FaultCalculationService._log(
                     f"[DEBUG] get_available_projects_ajax: ошибка при проверке статуса проекта: {e}"
                 )
                 project_status = None
@@ -1619,7 +1619,7 @@ def get_available_projects_ajax(request):
             "current_project": current_project,
             "project_available": project_status,  # True/False/None
         }
-        print(f"[DEBUG] get_available_projects_ajax: отправка ответа: {response_data}")
+        FaultCalculationService._log(f"[DEBUG] get_available_projects_ajax: отправка ответа: {response_data}")
         return JsonResponse(response_data)
     except ModuleNotFoundError as e:
         # PowerFactory не установлен или недоступен
@@ -1638,7 +1638,7 @@ def get_available_projects_ajax(request):
         import traceback
 
         error_trace = traceback.format_exc()
-        print(f"Ошибка при получении проектов PowerFactory: {error_trace}")
+        FaultCalculationService._log(f"Ошибка при получении проектов PowerFactory: {error_trace}")
         return JsonResponse(
             {
                 "error": str(e),

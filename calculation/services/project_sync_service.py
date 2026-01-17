@@ -30,6 +30,7 @@ from calculation.services.powerfactory_locator import (
     get_pf_line,
 )
 from calculation.services.topology_analysis_service import TopologyAnalysisService
+from calculation.services.fault_calculation_service import FaultCalculationService
 
 
 class ProjectSyncService:
@@ -68,7 +69,7 @@ class ProjectSyncService:
 
         # Если есть хотя бы минимальные данные для этого проекта, считаем что синхронизация уже была
         needs = lines_count == 0 or substations_count == 0
-        print(
+        FaultCalculationService._log(
             f"[DEBUG] needs_sync для проекта '{self.project_name}': lines={lines_count}, substations={substations_count}, needs={needs}"
         )
         return needs
@@ -110,7 +111,7 @@ class ProjectSyncService:
             # Если данных нет, создаем новые (update_only=False)
             # Если данные есть, только обновляем существующие (update_only=True)
             update_only = not needs_full_sync and not force_full
-            print(
+            FaultCalculationService._log(
                 f"[DEBUG] sync_project: needs_full_sync={needs_full_sync}, force_full={force_full}, update_only={update_only}"
             )
 
@@ -237,11 +238,11 @@ class ProjectSyncService:
                     except Line.DoesNotExist:
                         # Создаем новую линию только если не update_only
                         if update_only:
-                            print(
+                            FaultCalculationService._log(
                                 f"[DEBUG] Пропуск создания линии '{pf_name}' (update_only=True)"
                             )
                             continue
-                        print(
+                        FaultCalculationService._log(
                             f"[DEBUG] Создание новой линии '{pf_name}' для проекта '{self.project_name}'"
                         )
                         try:
@@ -261,11 +262,11 @@ class ProjectSyncService:
                                 line_type=line_type_obj,
                             )
                             created = True
-                            print(
+                            FaultCalculationService._log(
                                 f"[DEBUG] Линия '{pf_name}' успешно создана (ID: {existing_line.id})"
                             )
                         except Exception as create_error:
-                            print(
+                            FaultCalculationService._log(
                                 f"[DEBUG] Ошибка при создании линии '{pf_name}': {create_error}"
                             )
                             stats["errors"] += 1

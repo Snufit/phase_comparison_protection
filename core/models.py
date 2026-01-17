@@ -4,6 +4,21 @@ from django.db import models
 from django.db.models import Q
 
 
+def _log_core(message: str):
+    """
+    Вспомогательная функция для логирования через FaultCalculationService с префиксом [core].
+    
+    Args:
+        message: Сообщение для логирования (будет добавлен префикс [core])
+    """
+    try:
+        from calculation.services.fault_calculation_service import FaultCalculationService
+        FaultCalculationService._log(f"[core] {message}")
+    except ImportError:
+        # Если FaultCalculationService недоступен, просто выводим в консоль
+        print(f"[core] {message}")
+
+
 class LineType(models.Model):
     """Модель типа ЛЭП."""
 
@@ -418,7 +433,7 @@ class Line(models.Model):
             app: COM-объект PowerFactory
         """
         if not self.pf_name:
-            print(f"Для ЛЭП {self.dispatch_name} не указано pf_name")
+            _log_core(f"Для ЛЭП {self.dispatch_name} не указано pf_name")
             return
 
         try:
@@ -431,7 +446,7 @@ class Line(models.Model):
                     break
 
             if not pf_line:
-                print(f"ЛЭП '{self.pf_name}' не найдена в PowerFactory")
+                _log_core(f"ЛЭП '{self.pf_name}' не найдена в PowerFactory")
                 return
 
             # Получаем напряжение из терминалов ЛЭП
@@ -449,12 +464,12 @@ class Line(models.Model):
                         str(round(length, 2))
                     )  # Округляем до 2 знаков после запятой
             except Exception as e:
-                print(f"Не удалось получить длину для ЛЭП {self.dispatch_name}: {e}")
+                _log_core(f"Не удалось получить длину для ЛЭП {self.dispatch_name}: {e}")
 
             self.save()
         except Exception as e:
             # Логируем ошибку, но не прерываем выполнение
-            print(
+            _log_core(
                 f"Ошибка при получении данных из PowerFactory для ЛЭП {self.dispatch_name}: {e}"
             )
 
@@ -471,7 +486,7 @@ class Line(models.Model):
             app: COM-объект PowerFactory
         """
         if not self.pf_name:
-            print(f"Для ЛЭП {self.dispatch_name} не указано pf_name")
+            _log_core(f"Для ЛЭП {self.dispatch_name} не указано pf_name")
             return
 
         try:
@@ -489,7 +504,7 @@ class Line(models.Model):
                     break
 
             if not pf_line:
-                print(f"ЛЭП '{self.pf_name}' не найдена в PowerFactory")
+                _log_core(f"ЛЭП '{self.pf_name}' не найдена в PowerFactory")
                 return
 
             # Получаем все подстанции на концах ЛЭП
@@ -535,16 +550,16 @@ class Line(models.Model):
                         line_branch.save()
 
                     if created:
-                        print(
+                        _log_core(
                             f"Создано ответвление для ЛЭП {self.dispatch_name}: {substation_name}"
                         )
                     else:
-                        print(
+                        _log_core(
                             f"Обновлено ответвление для ЛЭП {self.dispatch_name}: {substation_name}"
                         )
 
         except Exception as e:
-            print(
+            _log_core(
                 f"Ошибка при определении ответвлений для ЛЭП {self.dispatch_name}: {e}"
             )
 
