@@ -1,0 +1,245 @@
+@startuml class_diagram
+skinparam linetype ortho
+skinparam monochrome false
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+title Диаграмма классов - Phase Comparison Protection
+
+' ==================== CORE MODELS ====================
+package "core.models" #LightBlue {
+    
+    class Line {
+        +dispatch_name: str
+        +pf_name: str
+        +project_name: str
+        +length: Decimal
+        +current_capacity: float
+        --
+        +line_type: FK[LineType]
+        +ct: FK[CurrentTransformer]
+        +vt: FK[VoltageTransformer]
+    }
+    
+    class LineType {
+        +type_code: str
+    }
+    
+    class LineBranch {
+        +pf_name: str
+        +branch_index: int
+        --
+        +line: FK[Line]
+        +terminal: FK[Substation]
+    }
+    
+    class Substation {
+        +pf_name: str
+        +project_name: str
+    }
+    
+    class ProtectionHalfSet {
+        --
+        +line: FK[Line]
+        +substation: FK[Substation]
+        +protection_device: FK[ProtectionDevice]
+    }
+    
+    class ProtectionDevice {
+        +model: str
+        --
+        +manufacturer: FK[Manufacturer]
+    }
+    
+    class Component {
+        +name: str
+        +description: str
+        +setting_designation: str
+        +fault_type: str
+    }
+    
+    class CurrentTransformer {
+        +model: str
+        +primary_current: int
+        +secondary_current: int
+    }
+    
+    class VoltageTransformer {
+        +model: str
+        +primary_voltage: float
+        +secondary_voltage: float
+    }
+    
+    class HalfSetTopology {
+        +topology_data: JSON
+        +voltage_level: Decimal
+        +topology_hash: str
+        --
+        +protection_half_set: OneToOne[ProtectionHalfSet]
+    }
+}
+
+' ==================== CALCULATION MODELS ====================
+package "calculation.models" #LightGreen {
+    
+    class CalculationMeta {
+        +calculation_number: int
+        +calculation_date: datetime
+        --
+        +line: FK[Line]
+        +user: FK[User]
+    }
+    
+    class SettingsCalculation {
+        +calculation_factors: JSON
+        +result_value: float
+        +primary_value: float
+        +secondary_value: float
+        --
+        +calculation_meta: FK[CalculationMeta]
+        +protection_half_set: FK[ProtectionHalfSet]
+        +component: FK[Component]
+    }
+    
+    class FaultCalculation {
+        +fault_type: str
+        +fault_location: str
+        +network_topology: str
+        +fault_values: JSON
+        --
+        +calculation_meta: FK[CalculationMeta]
+        +protection_half_set: FK[ProtectionHalfSet]
+    }
+    
+    class SensitivityAnalysis {
+        +sensitivity_rate: float
+        +status: str
+        --
+        +settings_calculation: FK[SettingsCalculation]
+        +fault_calculation: FK[FaultCalculation]
+    }
+    
+    class HalfSetSubmode {
+        +submode_name: str
+        +submode_elements: JSON
+        +generation_params: JSON
+        --
+        +protection_half_set: FK[ProtectionHalfSet]
+    }
+}
+
+' ==================== SERVICES ====================
+package "calculation.services" #LightYellow {
+    
+    class FaultCalculationService {
+        -FAULT_CONFIG: dict
+        --
+        +run(): void
+        +{static} _log(message): void
+        -_execute_fault(): dict
+        -_get_branch_terminal(): object
+    }
+    
+    class SettingsCalculationService {
+        -calculation_meta: CalculationMeta
+        -calculation_factors: dict
+        --
+        +run(): void
+        +calculate_3i0(): float
+        +calculate_rnm(): float
+        +calculate_rnnp(): float
+        +calculate_man(): float
+    }
+    
+    class SensitivityAnalysisService {
+        -calculation_meta: CalculationMeta
+        --
+        +run(): void
+        -_calculate_3i0_sensitivity(): void
+        -_calculate_r_sensitivity(): void
+        -_calculate_rnm_sensitivity(): void
+        -_calculate_manipulation_sensitivity(): void
+    }
+    
+    class PowerFactoryManager {
+        -POWERFACTORY_PATH: str
+        -app: object
+        -project: object
+        --
+        +connect(): bool
+        +disconnect(): void
+        +get_lines(): list
+        +execute_fault(): dict
+    }
+    
+    class TopologyAnalysisService {
+        -protection_half_set: ProtectionHalfSet
+        --
+        +analyze(): dict
+        +get_topology_elements(): list
+    }
+    
+    class ProjectSyncService {
+        -project_name: str
+        --
+        +sync(): void
+        +sync_lines(): void
+        +sync_substations(): void
+    }
+    
+    class SensitivityFaultMap {
+        --
+        +get_fault_types(component): list
+        +get_fault_locations(component): list
+    }
+}
+
+' ==================== RELATIONSHIPS ====================
+' Core model relationships
+Line "1" --> "1" LineType
+Line "1" --> "1" CurrentTransformer
+Line "1" --> "1" VoltageTransformer
+Line "1" --> "*" LineBranch
+Line "1" --> "*" ProtectionHalfSet
+
+LineBranch "*" --> "1" Substation
+
+ProtectionHalfSet "*" --> "1" Substation
+ProtectionHalfSet "*" --> "1" ProtectionDevice
+ProtectionHalfSet "1" --> "1" HalfSetTopology
+
+' Calculation model relationships
+CalculationMeta "*" --> "1" Line
+CalculationMeta "1" --> "*" SettingsCalculation
+CalculationMeta "1" --> "*" FaultCalculation
+
+SettingsCalculation "*" --> "1" ProtectionHalfSet
+SettingsCalculation "*" --> "1" Component
+SettingsCalculation "1" --> "*" SensitivityAnalysis
+
+FaultCalculation "*" --> "1" ProtectionHalfSet
+FaultCalculation "1" --> "*" SensitivityAnalysis
+
+HalfSetSubmode "*" --> "1" ProtectionHalfSet
+
+' Service dependencies
+FaultCalculationService ..> PowerFactoryManager : uses
+FaultCalculationService ..> FaultCalculation : creates
+FaultCalculationService ..> HalfSetSubmode : uses
+
+SettingsCalculationService ..> SettingsCalculation : creates
+SettingsCalculationService ..> CalculationMeta : uses
+
+SensitivityAnalysisService ..> SensitivityAnalysis : creates
+SensitivityAnalysisService ..> SettingsCalculation : uses
+SensitivityAnalysisService ..> FaultCalculation : uses
+SensitivityAnalysisService ..> SensitivityFaultMap : uses
+
+TopologyAnalysisService ..> ProtectionHalfSet : analyzes
+TopologyAnalysisService ..> HalfSetTopology : creates
+
+ProjectSyncService ..> PowerFactoryManager : uses
+ProjectSyncService ..> Line : syncs
+ProjectSyncService ..> Substation : syncs
+
+@enduml
