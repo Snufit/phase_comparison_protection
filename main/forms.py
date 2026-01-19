@@ -93,7 +93,7 @@ class ADManualPasswordAuthenticationForm(AuthenticationForm):
             raise forms.ValidationError("Некорректный формат логина.")
         
         # Убеждаемся, что username нормализован в cleaned_data
-        self.cleaned_data["username"] = normalized_username
+            self.cleaned_data["username"] = normalized_username
         
         # Шаг 2: Проверка существования пользователя в Django
         # (выполняется всегда, независимо от наличия пароля)

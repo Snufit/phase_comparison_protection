@@ -77,7 +77,7 @@ class AutoLoginView(LoginView):
                     del request.session["user_found_for_login"]
             # Если ошибка "неверный пароль" - сохраняем логин для readonly
             elif has_invalid_login and raw_username:
-                request.session["user_found_for_login"] = raw_username
+                    request.session["user_found_for_login"] = raw_username
             
             return self.form_invalid(form)
         
@@ -166,7 +166,7 @@ class AutoLoginView(LoginView):
             # 1. Пользователь найден в БД (проверка через сессию или прямое обращение)
             # 2. И нет ошибки "пользователь не зарегистрирован"
             if user_exists or user_found_in_session:
-                lock_username = True
+                    lock_username = True
 
         context["lock_username"] = lock_username
         context["user_exists"] = user_exists

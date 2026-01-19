@@ -868,9 +868,8 @@ class SettingsCalculationService:
         - Фмч = arctg(X1уд/R1уд) - угол максимальной чувствительности
         - X1уд = X1/L, R1уд = R1/L - удельные сопротивления
         """
-        x_break_branch_factor = self.calculation_factors.get(
-            "x_break_branch_factor", 1.5
-        )
+        # Коэффициент для расчета по ответвлениям фиксированный (не настраивается пользователем)
+        x_break_branch_factor = 1.5
 
         # Получаем параметры линии
         length = float(self.line.length)  # км

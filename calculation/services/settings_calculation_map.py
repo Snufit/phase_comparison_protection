@@ -6,8 +6,17 @@ SETTINGS_CALCULATION_MAP = {
             "il_grading_factor": {  # НАЗВАНИЕ_КОЭФФИЦИЕНТА
                 "label": "Коэффициент отстройки",  # Название для пользователя
                 "default_value": 1.3,  # значение_по_умолчанию
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
-            "il_reset_factor": {"label": "Коэффициент возврата", "default_value": 0.9},
+            "il_reset_factor": {
+                "label": "Коэффициент возврата",
+                "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
+            },
         },
         "calculation_function": "calculate_il_block",
     },
@@ -16,6 +25,9 @@ SETTINGS_CALCULATION_MAP = {
             "il_matching_factor": {
                 "label": "Коэффициент согласования",
                 "default_value": 1.4,
+                "min": 1.4,
+                "max": 2.0,
+                "step": 0.1,
             }
         },
         "calculation_function": "calculate_il_break",
@@ -25,12 +37,24 @@ SETTINGS_CALCULATION_MAP = {
             "i2_imbalance_factor": {
                 "label": "Коэффициент небаланса",
                 "default_value": 0.05,
+                "min": 0.02,
+                "max": 0.05,
+                "step": 0.01,
             },
             "i2_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.3,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
-            "i2_reset_factor": {"label": "Коэффициент возврата", "default_value": 0.9},
+            "i2_reset_factor": {
+                "label": "Коэффициент возврата",
+                "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
+            },
         },
         "calculation_function": "calculate_i2_block",
     },
@@ -39,6 +63,9 @@ SETTINGS_CALCULATION_MAP = {
             "i2_matching_factor": {
                 "label": "Коэффициент согласования",
                 "default_value": 1.4,
+                "min": 1.4,
+                "max": 2.0,
+                "step": 0.1,
             }
         },
         "calculation_function": "calculate_i2_break",
@@ -48,14 +75,23 @@ SETTINGS_CALCULATION_MAP = {
             "i0_imbalance_factor": {
                 "label": "Коэффициент небаланса",
                 "default_value": 0.05,
+                "min": 0.02,
+                "max": 0.05,
+                "step": 0.01,
             },
             "i0_block_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.2,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
             "i0_block_reset_factor": {
                 "label": "Коэффициент возврата",
                 "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
             },
         },
         "calculation_function": "calculate_3i0_block",
@@ -65,6 +101,9 @@ SETTINGS_CALCULATION_MAP = {
             "i0_break_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.5,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             }
         },
         "calculation_function": "calculate_3i0_break",
@@ -74,6 +113,9 @@ SETTINGS_CALCULATION_MAP = {
             "di1_matching_factor": {
                 "label": "Коэффициент согласования",
                 "default_value": 1.4,
+                "min": 1.4,
+                "max": 2.0,
+                "step": 0.1,
             }
         },
         "calculation_function": "calculate_di1_block",
@@ -87,12 +129,24 @@ SETTINGS_CALCULATION_MAP = {
             "di2_imbalance_factor": {
                 "label": "Коэффициент небаланса",
                 "default_value": 0.05,
+                "min": 0.02,
+                "max": 0.05,
+                "step": 0.01,
             },
             "di2_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.3,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
-            "di2_reset_factor": {"label": "Коэффициент возврата", "default_value": 0.9},
+            "di2_reset_factor": {
+                "label": "Коэффициент возврата",
+                "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
+            },
         },
         "calculation_function": "calculate_di2_block",
     },
@@ -101,6 +155,9 @@ SETTINGS_CALCULATION_MAP = {
             "di2_matching_factor": {
                 "label": "Коэффициент согласования",
                 "default_value": 1.4,
+                "min": 1.4,
+                "max": 2.0,
+                "step": 0.1,
             }
         },
         "calculation_function": "calculate_di2_break",
@@ -110,8 +167,17 @@ SETTINGS_CALCULATION_MAP = {
             "u2_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.3,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
-            "u2_reset_factor": {"label": "Коэффициент возврата", "default_value": 0.9},
+            "u2_reset_factor": {
+                "label": "Коэффициент возврата",
+                "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
+            },
         },
         "calculation_function": "calculate_u2_block",
     },
@@ -120,6 +186,9 @@ SETTINGS_CALCULATION_MAP = {
             "u2_matching_factor": {
                 "label": "Коэффициент согласования",
                 "default_value": 1.4,
+                "min": 1.4,
+                "max": 2.0,
+                "step": 0.1,
             }
         },
         "calculation_function": "calculate_u2_break",
@@ -137,14 +206,23 @@ SETTINGS_CALCULATION_MAP = {
             "rtnp_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.25,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
             "rtnp_reset_factor": {
                 "label": "Коэффициент возврата",
                 "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
             },
             "rtnp_imbalance_factor": {
                 "label": "Коэффициент небаланса",
                 "default_value": 0.05,
+                "min": 0.02,
+                "max": 0.05,
+                "step": 0.01,
             },
         },
         "calculation_function": "calculate_rtnp",
@@ -154,14 +232,23 @@ SETTINGS_CALCULATION_MAP = {
             "rnnp_grading_factor": {
                 "label": "Коэффициент отстройки",
                 "default_value": 1.25,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
             "rnnp_reset_factor": {
                 "label": "Коэффициент возврата",
                 "default_value": 0.9,
+                "min": 0.9,
+                "max": 0.95,
+                "step": 0.05,
             },
             "rnnp_imbalance_voltage": {
                 "label": "Напряжение небаланса (вторичное, В)",
                 "default_value": 1.5,
+                "min": 1.5,
+                "max": 2.0,
+                "step": 0.1,
             },
         },
         "calculation_function": "calculate_rnnp",
@@ -171,18 +258,22 @@ SETTINGS_CALCULATION_MAP = {
             "r_break_reliability_factor": {
                 "label": "Коэффициент надежности",
                 "default_value": 1.6,
+                "min": 1.2,
+                "max": 2.0,
+                "step": 0.1,
             },
-            "load_angle": {"label": "Угол нагрузки, град", "default_value": 30.0},
+            "load_angle": {
+                "label": "Угол нагрузки, град",
+                "default_value": 30.0,
+                "min": 0.0,
+                "max": 90.0,
+                "step": 1.0,
+            },
         },
         "calculation_function": "calculate_r_break",
     },
     "X ОТКЛ": {
-        "calculation_factors": {
-            "x_break_branch_factor": {
-                "label": "Коэффициент для расчета по ответвлениям",
-                "default_value": 1.5,
-            }
-        },
+        "calculation_factors": {},
         "calculation_function": "calculate_x_break",
     },
     "R ОТВ": {"calculation_factors": {}, "calculation_function": "calculate_r_otv"},
@@ -191,6 +282,9 @@ SETTINGS_CALCULATION_MAP = {
             "x_otv_reliability_factor": {
                 "label": "Коэффициент надежности",
                 "default_value": 0.85,
+                "min": 0.5,
+                "max": 1.0,
+                "step": 0.05,
             }
         },
         "calculation_function": "calculate_x_otv",

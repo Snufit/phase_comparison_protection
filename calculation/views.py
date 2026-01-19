@@ -64,9 +64,6 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         # Создаем форму и устанавливаем начальные значения
         line_form = LineSelectionForm(project_name=project_name)
 
-        # Явно устанавливаем ТН в None по умолчанию
-        line_form.fields["vt"].initial = None
-
         calculation_form = CalculationFactorsForm()
         submodes_form1 = SubmodesConfigurationForm(prefix="half_set1")
         submodes_form2 = SubmodesConfigurationForm(prefix="half_set2")
@@ -81,7 +78,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         half_set1_submodes = None
         half_set2_submodes = None
 
-        # Если выбрана ЛЭП, устанавливаем начальные значения для формы
+        # Если выбрана ЛЭП, устанавливаем начальные значения для формы коэффициентов
         if line_id:
             try:
                 line_query = Line.objects.filter(pk=line_id)
@@ -89,21 +86,35 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     line_query = line_query.filter(project_name=project_name)
                 line = line_query.first()
 
-                # Если у линии есть ТН, устанавливаем его в форме
-                if line and line.vt:
-                    line_form.fields["vt"].initial = line.vt
-                # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
-                elif line and line.voltage_level:
-                    from core.models import VoltageTransformer
+                # Если у линии есть ТТ и ТН, устанавливаем их в форме коэффициентов
+                if line:
+                    if line.ct:
+                        calculation_form.fields["ct"].initial = line.ct
+                    if line.vt:
+                        calculation_form.fields["vt"].initial = line.vt
+                    # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
+                    elif line.voltage_level:
+                        from core.models import VoltageTransformer
 
-                    line_voltage_int = int(float(line.voltage_level))
-                    # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
-                    # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
-                    vt = VoltageTransformer.objects.filter(
-                        primary_voltage=line_voltage_int
-                    ).first()
-                    if vt:
-                        line_form.fields["vt"].initial = vt
+                        line_voltage_int = int(float(line.voltage_level))
+                        # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                        # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+                        vt_queryset = VoltageTransformer.objects.filter(
+                            primary_voltage=line_voltage_int
+                        ).order_by('id')
+                        
+                        if vt_queryset.exists():
+                            vt = vt_queryset.first()
+                            FaultCalculationService._log(
+                                f"[DEBUG] Автоматически выбран ТН для ЛЭП {line.dispatch_name}: {vt} "
+                                f"(напряжение ЛЭП: {line.voltage_level} кВ, primary_voltage ТН: {vt.primary_voltage} кВ)"
+                            )
+                            calculation_form.fields["vt"].initial = vt
+                        else:
+                            FaultCalculationService._log(
+                                f"[WARNING] ТН с primary_voltage={line_voltage_int} кВ не найден для ЛЭП {line.dispatch_name} "
+                                f"при загрузке страницы"
+                            )
             except Line.DoesNotExist:
                 pass
 
@@ -303,7 +314,14 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         calculation_factors = request.session.get("calculation_factors", None)
 
         if calculation_factors:
+            # Восстанавливаем форму с сохраненными коэффициентами
             calculation_form = CalculationFactorsForm(initial=calculation_factors)
+            # Если в сессии есть ТТ и ТН, устанавливаем их
+            if line:
+                if line.ct:
+                    calculation_form.fields["ct"].initial = line.ct
+                if line.vt:
+                    calculation_form.fields["vt"].initial = line.vt
 
         # Получаем подстанции ответвлений для линии
         branch_substations = []
@@ -676,31 +694,6 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             line = form.cleaned_data["line"]
             request.session["line_id"] = line.id
 
-            # Сохраняем выбранные ТТ и ТН в модель Line
-            ct = form.cleaned_data.get("ct")
-            vt = form.cleaned_data.get("vt")
-
-            # Если ТН не выбран пользователем, но у линии есть напряжение,
-            # пытаемся найти подходящий ТН автоматически
-            # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
-            if not vt and line.voltage_level:
-                from core.models import VoltageTransformer
-
-                # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
-                line_voltage_int = int(float(line.voltage_level))
-                vt = VoltageTransformer.objects.filter(
-                    primary_voltage=line_voltage_int
-                ).first()
-                if vt:
-                    line.vt = vt
-
-            if ct:
-                line.ct = ct
-            if vt:
-                line.vt = vt
-            if ct or vt:
-                line.save()
-
             # Получаем полукомплекты ЛЭП
             protection_half_sets = list(line.protection_half_sets.all())
 
@@ -742,12 +735,23 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
                     # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
                     line_voltage_int = int(float(line.voltage_level))
-                    vt = VoltageTransformer.objects.filter(
+                    vt_queryset = VoltageTransformer.objects.filter(
                         primary_voltage=line_voltage_int
-                    ).first()
-                    if vt:
+                    ).order_by('id')
+                    
+                    if vt_queryset.exists():
+                        vt = vt_queryset.first()
+                        FaultCalculationService._log(
+                            f"[DEBUG] Автоматически найден ТН для ЛЭП {line.dispatch_name} при выборе линии: {vt} "
+                            f"(напряжение ЛЭП: {line.voltage_level} кВ, primary_voltage ТН: {vt.primary_voltage} кВ)"
+                        )
                         line.vt = vt
                         line.save()
+                    else:
+                        FaultCalculationService._log(
+                            f"[WARNING] ТН с primary_voltage={line_voltage_int} кВ не найден для ЛЭП {line.dispatch_name} "
+                            f"при выборе линии. Напряжение ЛЭП: {line.voltage_level} кВ"
+                        )
 
                 # Выполняем анализ топологии прилегающей
                 # сети для каждого полукомплекта
@@ -933,10 +937,57 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         # Собираем все коэффициенты из POST запроса
         calculation_factors = {}
 
+        # Получаем линию из сессии
+        line_id = request.session.get("line_id")
+        project_name = request.session.get("pf_project_name")
+        line = None
+        if line_id:
+            line_query = Line.objects.filter(pk=line_id)
+            if project_name:
+                line_query = line_query.filter(project_name=project_name)
+            line = line_query.first()
+
         # Сначала получаем данные из стандартной формы
         form = CalculationFactorsForm(request.POST)
         if form.is_valid():
             calculation_factors.update(form.cleaned_data)
+            
+            # Сохраняем выбранные ТТ и ТН в модель Line
+            ct = form.cleaned_data.get("ct")
+            vt = form.cleaned_data.get("vt")
+            
+            if line:
+                # Если ТН не выбран пользователем, но у линии есть напряжение,
+                # пытаемся найти подходящий ТН автоматически
+                # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+                if not vt and line.voltage_level:
+                    from core.models import VoltageTransformer
+
+                    # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                    line_voltage_int = int(float(line.voltage_level))
+                    vt_queryset = VoltageTransformer.objects.filter(
+                        primary_voltage=line_voltage_int
+                    ).order_by('id')
+                    
+                    if vt_queryset.exists():
+                        vt = vt_queryset.first()
+                        FaultCalculationService._log(
+                            f"[DEBUG] Автоматически найден ТН для ЛЭП {line.dispatch_name}: {vt} "
+                            f"(напряжение ЛЭП: {line.voltage_level} кВ, primary_voltage ТН: {vt.primary_voltage} кВ)"
+                        )
+                        line.vt = vt
+                    else:
+                        FaultCalculationService._log(
+                            f"[WARNING] ТН с primary_voltage={line_voltage_int} кВ не найден для ЛЭП {line.dispatch_name} "
+                            f"при сохранении коэффициентов"
+                        )
+
+                if ct:
+                    line.ct = ct
+                if vt:
+                    line.vt = vt
+                if ct or vt:
+                    line.save()
 
         # Сохраняем состояние включения/отключения органов
         enabled_organs = {}
@@ -1196,10 +1247,26 @@ def get_line_vt_ajax(request):
         # Если у линии есть напряжение, ищем подходящий ТН
         if line.voltage_level:
             line_voltage_int = int(float(line.voltage_level))
-            vt = VoltageTransformer.objects.filter(
+            
+            # Ищем ТН с точным совпадением по primary_voltage
+            # Если найдено несколько, выбираем первый (можно добавить сортировку по ID или типу)
+            vt_queryset = VoltageTransformer.objects.filter(
                 primary_voltage=line_voltage_int
-            ).first()
-            if vt:
+            ).order_by('id')
+            
+            # Логируем для отладки
+            FaultCalculationService._log(
+                f"[DEBUG] Поиск ТН для ЛЭП {line.dispatch_name} (напряжение: {line.voltage_level} кВ, int: {line_voltage_int})"
+            )
+            FaultCalculationService._log(
+                f"[DEBUG] Найдено ТН с primary_voltage={line_voltage_int}: {vt_queryset.count()}"
+            )
+            
+            if vt_queryset.exists():
+                vt = vt_queryset.first()
+                FaultCalculationService._log(
+                    f"[DEBUG] Выбран ТН: {vt} (ID: {vt.id}, primary_voltage: {vt.primary_voltage} кВ)"
+                )
                 return JsonResponse(
                     {
                         "success": True,
@@ -1207,6 +1274,16 @@ def get_line_vt_ajax(request):
                         "vt_name": str(vt),
                         "voltage_level": float(line.voltage_level),
                     }
+                )
+            else:
+                # Логируем, если ТН не найден
+                FaultCalculationService._log(
+                    f"[WARNING] ТН с primary_voltage={line_voltage_int} кВ не найден для ЛЭП {line.dispatch_name}"
+                )
+                # Проверяем, какие ТН есть в базе
+                all_vts = VoltageTransformer.objects.values_list('primary_voltage', flat=True).distinct()
+                FaultCalculationService._log(
+                    f"[DEBUG] Доступные напряжения ТН в БД: {sorted(set(all_vts))}"
                 )
 
         return JsonResponse(

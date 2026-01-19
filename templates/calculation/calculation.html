@@ -33,16 +33,6 @@
             {{ line_form.line.label_tag }}
             {{ line_form.line }} <!-- Список ЛЭП (будет обновляться) -->
         </div>
-        <div class="row mb-3">
-            <div class="col-md-6">
-                {{ line_form.ct.label_tag }}
-                {{ line_form.ct }}
-            </div>
-            <div class="col-md-6">
-                {{ line_form.vt.label_tag }}
-                {{ line_form.vt }}
-            </div>
-        </div>
         <script>
             $(document).ready(function () {
                 // Инициализация Select2 для поля выбора ЛЭП
@@ -69,21 +59,6 @@
                     placeholder: 'Все типы',
                     width: '100%',
                     allowClear: true,
-                    minimumResultsForSearch: Infinity
-                });
-                // Инициализация Select2 для поля ТТ
-                $('#id_ct').select2({
-                    placeholder: 'Выберите ТТ...',
-                    width: '100%',
-                    allowClear: false,  // Обязательное поле, нельзя очистить
-                    minimumResultsForSearch: Infinity
-                });
-
-                // Инициализация Select2 для поля ТН
-                $('#id_vt').select2({
-                    placeholder: 'Выберите ТН...',
-                    width: '100%',
-                    allowClear: false,  // Обязательное поле, нельзя очистить
                     minimumResultsForSearch: Infinity
                 });
 
@@ -126,10 +101,10 @@
                     updateLineList();
                 });
 
-                // Автоматическое обновление ТН при выборе ЛЭП
+                // Автоматическое обновление ТН при выборе ЛЭП (для формы коэффициентов)
                 $('#id_line').on('change', function () {
                     const lineId = $(this).val();
-                    const vtSelect = $('#id_vt');
+                    const vtSelect = $('#id_calculation_vt');
 
                     if (lineId) {
                         // Запрашиваем подходящий ТН для выбранной ЛЭП
@@ -141,20 +116,14 @@
                             },
                             success: function (response) {
                                 if (response.success && response.vt_id) {
-                                    // Устанавливаем найденный ТН
+                                    // Устанавливаем найденный ТН в форму коэффициентов
                                     vtSelect.val(response.vt_id).trigger('change');
-                                } else {
-                                    // Если ТН не найден, очищаем выбор (но оставляем возможность выбрать вручную)
-                                    // Не очищаем, чтобы пользователь мог выбрать вручную
                                 }
                             },
                             error: function () {
                                 console.error('Ошибка при получении ТН для ЛЭП');
                             }
                         });
-                    } else {
-                        // Если ЛЭП не выбрана, очищаем ТН
-                        vtSelect.val(null).trigger('change');
                     }
                 });
             });
@@ -552,15 +521,53 @@
                         {% csrf_token %}
 
                         <!-- Общие параметры -->
-                        <div class="card mb-3">
+                        <div class="card mb-3 shadow">
                             <div class="card-header bg-primary text-white">
-                                <h6 class="mb-0"><strong>Общие параметры</strong></h6>
+                                <h6 class="mb-0">
+                                    <i class="bi bi-sliders me-2"></i>
+                                    <strong>Общие параметры</strong>
+                                </h6>
                             </div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        {{ calculation_form.load_current.label_tag }}
+                                <div class="row g-3">
+                                    <!-- Длительно допустимый рабочий ток -->
+                                    <div class="col-12">
+                                        <label for="{{ calculation_form.load_current.id_for_label }}" class="form-label fw-semibold text-dark">
+                                            {{ calculation_form.load_current.label }}
+                                        </label>
                                         {{ calculation_form.load_current }}
+                                        {% if calculation_form.load_current.help_text %}
+                                            <small class="form-text text-muted">{{ calculation_form.load_current.help_text }}</small>
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <!-- Трансформаторы -->
+                                    <div class="col-md-6">
+                                        <label for="{{ calculation_form.ct.id_for_label }}" class="form-label fw-semibold text-dark">
+                                            {{ calculation_form.ct.label }}
+                                        </label>
+                                        {{ calculation_form.ct }}
+                                        {% if calculation_form.ct.errors %}
+                                            <div class="invalid-feedback d-block">
+                                                {% for error in calculation_form.ct.errors %}
+                                                    <small class="text-danger">{{ error }}</small>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <label for="{{ calculation_form.vt.id_for_label }}" class="form-label fw-semibold text-dark">
+                                            {{ calculation_form.vt.label }}
+                                        </label>
+                                        {{ calculation_form.vt }}
+                                        {% if calculation_form.vt.errors %}
+                                            <div class="invalid-feedback d-block">
+                                                {% for error in calculation_form.vt.errors %}
+                                                    <small class="text-danger">{{ error }}</small>
+                                                {% endfor %}
+                                            </div>
+                                        {% endif %}
                                     </div>
                                 </div>
                             </div>
@@ -569,53 +576,76 @@
                         <!-- Органы защиты по категориям -->
                         {% for category, organs in organs_data.items %}
                         {% if organs %}
-                        <div class="card mb-3">
+                        <div class="card mb-3 shadow-sm">
                             <div class="card-header bg-secondary text-white">
-                                <h6 class="mb-0"><strong>{{ category }}</strong></h6>
+                                <h6 class="mb-0">
+                                <i class="bi bi-shield-check me-2"></i>
+                                    <strong>{{ category }}</strong>
+                                </h6>
                             </div>
                             <div class="card-body">
                                 {% for organ in organs %}
-                                <div class="border rounded p-3 mb-3">
-                                    <div class="d-flex justify-content-between align-items-center mb-3">
-                                        <h6 class="text-primary mb-0">
-                                            <strong>{{ organ.name }}</strong>
+                                <div class="border rounded p-4 mb-3 {% if organ.toggleable and not organ.enabled %}bg-light opacity-75{% else %}bg-white{% endif %}" 
+                                     style="transition: all 0.3s ease;">
+                                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                                        <h6 class="text-primary mb-0 fw-bold">
+                                            {{ organ.name }}
                                         </h6>
                                         {% if organ.toggleable %}
                                         <div class="form-check form-switch">
                                             <input class="form-check-input" type="checkbox"
                                                 id="organ_enabled_{{ organ.original_name }}"
                                                 name="organ_enabled_{{ organ.original_name }}" {% if organ.enabled %}checked{% endif %}
-                                                onchange="toggleOrgan('{{ organ.original_name }}', this.checked)">
-                                            <label class="form-check-label"
+                                                onchange="toggleOrgan('{{ organ.original_name }}', this.checked)"
+                                                style="cursor: pointer;">
+                                            <label class="form-check-label fw-semibold"
                                                 for="organ_enabled_{{ organ.original_name }}"
-                                                id="label_organ_enabled_{{ organ.original_name }}">
-                                                {% if organ.enabled %}Включен{% else %}Отключен{% endif %}
+                                                id="label_organ_enabled_{{ organ.original_name }}"
+                                                style="cursor: pointer;">
+                                                {% if organ.enabled %}
+                                                    <span class="text-success fw-semibold">Включен</span>
+                                                {% else %}
+                                                    <span class="text-muted fw-semibold">Отключен</span>
+                                                {% endif %}
                                             </label>
                                         </div>
                                         {% endif %}
                                     </div>
                                     {% if organ.calculation_factors %}
-                                    <div class="row">
+                                    <div class="row g-3">
                                         {% for factor_key, factor_data in organ.calculation_factors.items %}
-                                        <div class="col-md-6 mb-3">
-                                            <label class="form-label" for="id_{{ factor_key }}">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold text-dark" for="id_{{ factor_key }}">
                                                 {{ factor_data.label }}
                                             </label>
-                                            <input type="number" class="form-control" id="id_{{ factor_key }}"
-                                                name="{{ factor_key }}"
-                                                value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
-                                                step="0.01" min="0" {% if organ.toggleable and not organ.enabled %}disabled{% endif %} required>
+                                            <input type="number" 
+                                                   class="form-control form-control-lg" 
+                                                   id="id_{{ factor_key }}"
+                                                   name="{{ factor_key }}"
+                                                   value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
+                                                   step="{% if factor_data.step is not None %}{{ factor_data.step|unlocalize }}{% else %}0.01{% endif %}" 
+                                                   min="{% if factor_data.min is not None %}{{ factor_data.min|unlocalize }}{% else %}0{% endif %}" 
+                                                   max="{% if factor_data.max is not None %}{{ factor_data.max|unlocalize }}{% endif %}"
+                                                   {% if organ.toggleable and not organ.enabled %}disabled{% endif %} 
+                                                   required
+                                                   style="{% if organ.toggleable and not organ.enabled %}background-color: #e9ecef;{% endif %}">
                                         </div>
                                         {% endfor %}
                                     </div>
                                     {% else %}
-                                    <p class="text-muted mb-0">
-                                        {% if organ.toggleable and not organ.enabled %}
-                                        Орган отключен. Включите его для настройки коэффициентов.
-                {% else %}
-                                        Коэффициенты не требуются
-                {% endif %}
-            </p>
+                                    <div class="text-muted text-center py-2 mb-0">
+                                        <small>
+                                            {% if organ.toggleable %}
+                                                {% if not organ.enabled %}
+                                                    Орган отключен. Коэффициенты не требуются для данного органа.
+                                                {% else %}
+                                                    Коэффициенты не требуются для данного органа.
+                                                {% endif %}
+                                            {% else %}
+                                                Коэффициенты не требуются для данного органа.
+                                            {% endif %}
+                                        </small>
+                                    </div>
                                     {% endif %}
                                 </div>
                                 {% endfor %}
@@ -636,6 +666,29 @@
             </div>
         </div>
     </div>
+
+    <script>
+        // Инициализация Select2 для полей ТТ и ТН в форме коэффициентов
+        $(document).ready(function () {
+            // Инициализация Select2 для поля ТТ в форме коэффициентов
+            $('#id_calculation_ct').select2({
+                placeholder: 'Выберите ТТ...',
+                width: '100%',
+                allowClear: false,  // Обязательное поле, нельзя очистить
+                minimumResultsForSearch: Infinity,
+                dropdownParent: $('#modalCalculationFactors')
+            });
+
+            // Инициализация Select2 для поля ТН в форме коэффициентов
+            $('#id_calculation_vt').select2({
+                placeholder: 'Выберите ТН...',
+                width: '100%',
+                allowClear: false,  // Обязательное поле, нельзя очистить
+                minimumResultsForSearch: Infinity,
+                dropdownParent: $('#modalCalculationFactors')
+            });
+        });
+    </script>
 
 
     <!-- Модальное окно для управления методиками -->
@@ -959,33 +1012,46 @@
                         // Обновляем видимость полей коэффициентов без перезагрузки
                         const checkbox = document.querySelector(`input[id="organ_enabled_${organName}"]`);
                         if (checkbox) {
-                            // Обновляем текст метки
+                            // Обновляем текст метки с цветом
                             const label = document.querySelector(`label[id="label_organ_enabled_${organName}"]`);
                             if (label) {
-                                label.textContent = enabled ? 'Включен' : 'Отключен';
+                                if (enabled) {
+                                    label.innerHTML = '<span class="text-success fw-semibold">Включен</span>';
+                                } else {
+                                    label.innerHTML = '<span class="text-muted fw-semibold">Отключен</span>';
+                                }
                             }
 
                             const organContainer = checkbox.closest('.border.rounded');
                             const factorsContainer = organContainer ? organContainer.querySelector('.row') : null;
                             const factorsInputs = factorsContainer ? factorsContainer.querySelectorAll('input[type="number"]') : [];
+                            const messageContainer = organContainer ? organContainer.querySelector('.text-muted.text-center') : null;
 
                             if (enabled) {
                                 // Включаем поля
+                                organContainer.classList.remove('bg-light', 'opacity-75');
+                                organContainer.classList.add('bg-white');
                                 factorsInputs.forEach(input => {
                                     input.disabled = false;
                                     input.required = true;
+                                    input.style.backgroundColor = '';
                                 });
-                                if (factorsContainer) {
-                                    factorsContainer.style.opacity = '1';
+                                // Обновляем сообщение, если орган не имеет коэффициентов
+                                if (messageContainer && !factorsContainer) {
+                                    messageContainer.innerHTML = '<small>Коэффициенты не требуются для данного органа.</small>';
                                 }
                             } else {
                                 // Отключаем поля
+                                organContainer.classList.remove('bg-white');
+                                organContainer.classList.add('bg-light', 'opacity-75');
                                 factorsInputs.forEach(input => {
                                     input.disabled = true;
                                     input.required = false;
+                                    input.style.backgroundColor = '#e9ecef';
                                 });
-                                if (factorsContainer) {
-                                    factorsContainer.style.opacity = '0.5';
+                                // Обновляем сообщение, если орган не имеет коэффициентов
+                                if (messageContainer && !factorsContainer) {
+                                    messageContainer.innerHTML = '<small>Орган отключен. Коэффициенты не требуются для данного органа.</small>';
                                 }
                             }
                         }

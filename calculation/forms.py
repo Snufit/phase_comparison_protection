@@ -70,21 +70,6 @@ class LineSelectionForm(forms.Form):
                 voltage_choices.append((str(v), f"{v} кВ"))
         self.fields["voltage_filter"].choices = voltage_choices
 
-    ct = forms.ModelChoiceField(
-        queryset=CurrentTransformer.objects.all(),
-        label="Трансформатор тока (ТТ)",
-        empty_label="ТТ не выбран",
-        required=True,  # Обязательное поле
-        widget=forms.Select(attrs={"class": "form-select"}),
-    )
-    vt = forms.ModelChoiceField(
-        queryset=VoltageTransformer.objects.all(),
-        label="Трансформатор напряжения (ТН)",
-        empty_label="ТН не выбран",
-        required=True,  # Обязательное поле
-        widget=forms.Select(attrs={"class": "form-select"}),
-    )
-
 
 class SubmodesConfigurationForm(forms.Form):
     """Форма для задания ограничений по подрежимам."""
@@ -127,7 +112,28 @@ class CalculationFactorsForm(forms.Form):
         label="Длительно допустимый рабочий ток, А",
         initial=2000,
         required=True,
-        widget=forms.NumberInput(attrs={"class": "form-control", "step": 100}),
+        widget=forms.NumberInput(
+            attrs={
+                "class": "form-control form-control-lg",
+                "min": 0,
+                "max": 5000,
+                "step": 100,
+            }
+        ),
+    )
+    ct = forms.ModelChoiceField(
+        queryset=CurrentTransformer.objects.all(),
+        label="Трансформатор тока (ТТ)",
+        empty_label="ТТ не выбран",
+        required=True,  # Обязательное поле
+        widget=forms.Select(attrs={"class": "form-select form-select-lg", "id": "id_calculation_ct"}),
+    )
+    vt = forms.ModelChoiceField(
+        queryset=VoltageTransformer.objects.all(),
+        label="Трансформатор напряжения (ТН)",
+        empty_label="ТН не выбран",
+        required=True,  # Обязательное поле
+        widget=forms.Select(attrs={"class": "form-select form-select-lg", "id": "id_calculation_vt"}),
     )
     il_grading_factor = forms.FloatField(
         label="Коэффициент отстройки",
@@ -142,7 +148,7 @@ class CalculationFactorsForm(forms.Form):
         initial=0.9,
         required=True,
         widget=forms.NumberInput(
-            attrs={"class": "form-control", "min": 0.8, "max": 1.0, "step": 0.01}
+            attrs={"class": "form-control", "min": 0.9, "max": 0.95, "step": 0.05}
         ),
     )
     il_matching_factor = forms.FloatField(
@@ -174,7 +180,7 @@ class CalculationFactorsForm(forms.Form):
         initial=0.9,
         required=True,
         widget=forms.NumberInput(
-            attrs={"class": "form-control", "min": 0.8, "max": 1.0, "step": 0.01}
+            attrs={"class": "form-control", "min": 0.9, "max": 0.95, "step": 0.05}
         ),
     )
     i2_matching_factor = forms.FloatField(
@@ -206,7 +212,7 @@ class CalculationFactorsForm(forms.Form):
         initial=0.9,
         required=True,
         widget=forms.NumberInput(
-            attrs={"class": "form-control", "min": 0.8, "max": 1.0, "step": 0.01}
+            attrs={"class": "form-control", "min": 0.9, "max": 0.95, "step": 0.05}
         ),
     )
     u2_imbalance_voltage = forms.FloatField(
