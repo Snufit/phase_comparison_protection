@@ -1,0 +1,3 @@
+@startuml classes_DjangoProject
+set namespaceSeparator none
+@enduml

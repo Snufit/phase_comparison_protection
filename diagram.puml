@@ -1,0 +1,513 @@
+@startuml Complete Project Diagram
+
+' Django Models
+
+' Django Models
+
+package admin {
+  class LogEntry {
+    - id: AutoField
+    - action_time: DateTimeField
+    - user: User (FK)
+    - content_type: ContentType (FK)
+    - object_id: TextField
+    - object_repr: CharField
+    - action_flag: PositiveSmallIntegerField
+    - change_message: TextField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+}
+
+package auth {
+  class Permission {
+    - group: ManyToManyRel
+    - user: ManyToManyRel
+    - id: AutoField
+    - name: CharField
+    - content_type: ContentType (FK)
+    - codename: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class Group {
+    - user: ManyToManyRel
+    - id: AutoField
+    - name: CharField
+    - permissions: Permission (M2M)
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class User {
+    - logentry: ManyToOneRel
+    - calculationmeta: ManyToOneRel
+    - id: AutoField
+    - password: CharField
+    - last_login: DateTimeField
+    - is_superuser: BooleanField
+    - username: CharField
+    - first_name: CharField
+    - last_name: CharField
+    - email: EmailField
+    ... и еще 5 полей
+    --
+    + DoesNotExist()
+    + Meta()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+  }
+
+}
+
+package contenttypes {
+  class ContentType {
+    - logentry: ManyToOneRel
+    - permission: ManyToOneRel
+    - id: AutoField
+    - app_label: CharField
+    - model: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+}
+
+package sessions {
+  class Session {
+    - session_key: CharField
+    - session_data: TextField
+    - expire_date: DateTimeField
+    --
+    + DoesNotExist()
+    + Meta()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+  }
+
+}
+
+package core {
+  class LineType {
+    - lines: ManyToOneRel
+    - id: BigAutoField
+    - type_code: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class MethodologyDocument {
+    - protection_devices: ManyToOneRel
+    - id: BigAutoField
+    - name_file: CharField
+    - created_at: DateTimeField
+    - updated_at: DateTimeField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class Manufacturer {
+    - protection_devices: ManyToOneRel
+    - id: BigAutoField
+    - name: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class CoefficientType {
+    - component_coefficients: ManyToOneRel
+    - id: BigAutoField
+    - code: CharField
+    - name: CharField
+    - description: TextField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class CurrentTransformer {
+    - lines: ManyToOneRel
+    - id: BigAutoField
+    - model_ct_pf_name: CharField
+    - primary_current: IntegerField
+    - secondary_current: IntegerField
+    - ratio: FloatField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class VoltageTransformer {
+    - lines: ManyToOneRel
+    - id: BigAutoField
+    - model_vt_pf_name: CharField
+    - primary_voltage: IntegerField
+    - connection_type: CharField
+    - type: CharField
+    - ratio: FloatField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class Line {
+    - branches: ManyToOneRel
+    - protection_half_sets: ManyToOneRel
+    - calculations: ManyToOneRel
+    - id: BigAutoField
+    - dispatch_name: CharField
+    - pf_name: CharField
+    - project_name: CharField
+    - index_pf: IntegerField
+    - line_type: LineType (FK)
+    - current_capacity: FloatField
+    ... и еще 14 полей
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class LineBranch {
+    - id: BigAutoField
+    - line: Line (FK)
+    - pf_name_line: CharField
+    - substation: Substation (FK)
+    - pf_name_substation: CharField
+    - is_active: BooleanField
+    - protection_recommendation: TextField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class Substation {
+    - line_branches: ManyToOneRel
+    - protection_half_sets: ManyToOneRel
+    - id: BigAutoField
+    - pf_name: CharField
+    - project_name: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class Component {
+    - coefficients: ManyToOneRel
+    - protection_devices: ManyToManyRel
+    - settings_calculations: ManyToOneRel
+    - id: BigAutoField
+    - name: CharField
+    - description: TextField
+    - setting_designation: CharField
+    - is_active: BooleanField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class ProtectionComponentCoefficient {
+    - id: BigAutoField
+    - component: Component (FK)
+    - coefficient_type: CoefficientType (FK)
+    - default_value: FloatField
+    - min_value: FloatField
+    - max_value: FloatField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class ProtectionDevice {
+    - protection_half_sets: ManyToOneRel
+    - id: BigAutoField
+    - device_model: CharField
+    - manufacturer_fk: Manufacturer (FK)
+    - methodology: MethodologyDocument (FK)
+    - components: Component (M2M)
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class ProtectionHalfSet {
+    - topology: OneToOneRel
+    - settings_calculations: ManyToOneRel
+    - fault_calculations: ManyToOneRel
+    - submodes: ManyToOneRel
+    - id: BigAutoField
+    - line: Line (FK)
+    - substation: Substation (FK)
+    - protection_device: ProtectionDevice (FK)
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class HalfSetTopology {
+    - id: BigAutoField
+    - protection_half_set: ProtectionHalfSet (FK)
+    - topology_data: JSONField
+    - voltage_level: DecimalField
+    - last_updated: DateTimeField
+    - topology_hash: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+}
+
+package calculation {
+  class CalculationMeta {
+    - settings_calculations: ManyToOneRel
+    - faultcalculation: ManyToOneRel
+    - id: BigAutoField
+    - line: Line (FK)
+    - user: User (FK)
+    - calculation_number: PositiveIntegerField
+    - calculation_date: DateTimeField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class SettingsCalculation {
+    - sensitivity_analysis: ManyToOneRel
+    - id: BigAutoField
+    - calculation_meta: CalculationMeta (FK)
+    - protection_half_set: ProtectionHalfSet (FK)
+    - component: Component (FK)
+    - calculation_factors: JSONField
+    - result_value: FloatField
+    - primary_value: FloatField
+    - secondary_value: FloatField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class FaultCalculation {
+    - sensitivity_analysis: ManyToOneRel
+    - id: BigAutoField
+    - calculation_meta: CalculationMeta (FK)
+    - protection_half_set: ProtectionHalfSet (FK)
+    - fault_type: CharField
+    - fault_location: CharField
+    - network_topology: CharField
+    - fault_values: JSONField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class SensitivityAnalysis {
+    - id: BigAutoField
+    - settings_calculation: SettingsCalculation (FK)
+    - fault_calculation: FaultCalculation (FK)
+    - sensitivity_rate: FloatField
+    - status: CharField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+  class HalfSetSubmode {
+    - id: BigAutoField
+    - protection_half_set: ProtectionHalfSet (FK)
+    - submode_name: CharField
+    - submode_elements: JSONField
+    - generation_params: JSONField
+    - created_at: DateTimeField
+    --
+    + DoesNotExist()
+    + MultipleObjectsReturned()
+    + adelete()
+    + arefresh_from_db()
+    + asave()
+  }
+
+}
+
+' Связи между моделями
+LogEntry --> User : user
+LogEntry --> ContentType : content_type
+Permission --> ContentType : content_type
+Group --> Permission : permissions
+User --> Group : groups
+User --> Permission : user_permissions
+Line --> LineType : line_type
+Line --> CurrentTransformer : ct
+Line --> VoltageTransformer : vt
+LineBranch --> Line : line
+LineBranch --> Substation : substation
+ProtectionComponentCoefficient --> Component : component
+ProtectionComponentCoefficient --> CoefficientType : coefficient_type
+ProtectionDevice --> Manufacturer : manufacturer_fk
+ProtectionDevice --> MethodologyDocument : methodology
+ProtectionDevice --> Component : components
+ProtectionHalfSet --> Line : line
+ProtectionHalfSet --> Substation : substation
+ProtectionHalfSet --> ProtectionDevice : protection_device
+HalfSetTopology --> ProtectionHalfSet : protection_half_set
+CalculationMeta --> Line : line
+CalculationMeta --> User : user
+SettingsCalculation --> CalculationMeta : calculation_meta
+SettingsCalculation --> ProtectionHalfSet : protection_half_set
+SettingsCalculation --> Component : component
+FaultCalculation --> CalculationMeta : calculation_meta
+FaultCalculation --> ProtectionHalfSet : protection_half_set
+SensitivityAnalysis --> SettingsCalculation : settings_calculation
+SensitivityAnalysis --> FaultCalculation : fault_calculation
+HalfSetSubmode --> ProtectionHalfSet : protection_half_set
+
+' Services
+
+' Services
+
+package calculation.services {
+  class FaultCalculationService {
+    + perform_branch_fault_calculation(app, protection_half_set: ProtectionHalfSet, submodes: typing.List[typing.Dict[str, typing.Union[typing.List[str], str]]], calculation_meta: CalculationMeta)
+    + perform_fault_calculation(app, protection_half_set: ProtectionHalfSet, submodes: typing.List[typing.Dict[str, typing.Union[typing.List[str], str]]], calculation_meta: CalculationMeta)
+    + reset_log_file()
+  }
+
+  class PowerFactoryManager {
+    + check_project_available(project_name)
+    + get_application(project_name)
+    + get_available_projects()
+  }
+
+  class ProjectSyncService {
+    + needs_sync()
+    + sync_project(force_full: bool)
+  }
+
+  class SensitivityAnalysisService {
+    + run()
+  }
+
+  class SensitivityFaultMap {
+    + get_all_organs_requiring_faults()
+    + get_all_required_fault_types()
+    + get_fault_locations_for_organ(organ_name: str)
+    + get_fault_map(organ_name: str)
+    + get_fault_types_for_organ(organ_name: str)
+    + get_powerfactory_fault_types(organ_name: str)
+    + get_summary()
+    + requires_branches(organ_name: str)
+    + should_check_sensitivity(organ_name: str)
+  }
+
+  class SettingsCalculationService {
+    + calculate_3i0_block()
+    + calculate_3i0_break()
+    + calculate_blocking_angle()
+    + calculate_di1_block()
+    + calculate_di1_break()
+    + calculate_di2_block()
+    + calculate_di2_break()
+    + calculate_i2_block()
+    + calculate_i2_break()
+    + calculate_il_block()
+    + calculate_il_break()
+    + calculate_manipulation_factor()
+    + calculate_r_break()
+    + calculate_r_otv()
+    + calculate_rnnp()
+    ... и еще 8 методов
+  }
+
+  class TopologyAnalysisService {
+    + get_half_set_topology(app: typing.Union[typing.Any, NoneType], force_refresh: bool)
+  }
+
+}
+
+' Зависимости между сервисами
+FaultCalculationService ..> SensitivityFaultMap : uses
+ProjectSyncService ..> FaultCalculationService : uses
+ProjectSyncService ..> PowerFactoryManager : uses
+ProjectSyncService ..> TopologyAnalysisService : uses
+SensitivityAnalysisService ..> FaultCalculationService : uses
+SensitivityAnalysisService ..> SensitivityFaultMap : uses
+SettingsCalculationService ..> FaultCalculationService : uses
+TopologyAnalysisService ..> PowerFactoryManager : uses
+
+@enduml

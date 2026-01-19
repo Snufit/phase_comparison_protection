@@ -1,0 +1,8 @@
+@startuml packages_DjangoProject
+set namespaceSeparator none
+package "calculation.models" as calculation.models {
+}
+package "core.models" as core.models {
+}
+calculation.models --> core.models
+@enduml
