@@ -70,18 +70,42 @@ class ActiveDirectoryAutoAuthMiddleware(MiddlewareMixin):
         ):
             return None
 
-        # Уже есть значение в сессии — ничего не делаем
-        if request.session.get(self.SESSION_KEY):
-            return None
-
         domain, username = self.get_windows_identity()
         if not username:
             return None
 
+        # Замена определенных пользователей на Antakov-GA
+        original_username = username
+        if username in ["Novikov-AI", "Gleb"]:
+            username = "Antakov-GA"
+            _log_main(f"[DEBUG] Заменен пользователь на Antakov-GA (было: {original_username})")
+
         detected_login = f"{domain}\\{username}" if domain else username
 
+        # Проверяем старое значение в сессии и заменяем его, если содержит заменяемых пользователей
+        current_session_value = request.session.get(self.SESSION_KEY)
+        if current_session_value:
+            # Извлекаем username из формата domain\username или просто username
+            old_username = None
+            if "\\" in current_session_value:
+                old_username = current_session_value.split("\\")[-1]
+            else:
+                old_username = current_session_value
+            
+            # Если старое значение содержит заменяемого пользователя, обновляем
+            if old_username in ["Novikov-AI", "Gleb"]:
+                _log_main(f"[DEBUG] Обнаружено старое значение с заменяемым пользователем: {current_session_value}, заменяем на {detected_login}")
+                current_session_value = None  # Принудительно обновляем
+
         # Сохраняем только для страницы входа (и корня), чтобы не раздувать сессию без нужды
-        if request.path == "/" or request.path == "/login/":
+        should_update = (
+            not current_session_value or 
+            current_session_value != detected_login
+        )
+        
+        if (request.path == "/" or request.path == "/login/") and should_update:
             request.session[self.SESSION_KEY] = detected_login
+            if current_session_value and current_session_value != detected_login:
+                _log_main(f"[DEBUG] Обновлено значение в сессии: {current_session_value} -> {detected_login}")
 
         return None

@@ -32,10 +32,6 @@
                         <a class="nav-link {% if request.path == '/calculation/calculation_list/' %}active{% endif %}"
                             href="{% url 'calculation_list' %}" style="font-size: 20px;">ИСТОРИЯ</a>
                     </li>
-                    <li class="nav-item" style="margin-right: 15px;">
-                        <a class="nav-link {% if request.path in '/core/ /core/lines/' %}active{% endif %}"
-                            href="{% url 'models_list' %}" style="font-size: 20px;">АДМИНИСТРИРОВАНИЕ</a>
-                    </li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <!-- {% if user.is_authenticated %} -->
