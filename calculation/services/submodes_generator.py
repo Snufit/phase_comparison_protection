@@ -26,6 +26,28 @@ def generate_half_set_submodes(
     """
     from calculation.models import HalfSetSubmode
 
+    # ВАЖНО: исключаем защищаемую ЛЭП из возможных отключений.
+    # Иначе появляется подрежим вида "Отключение <pf_name_линии>", который обесточивает сам объект расчета КЗ
+    # и приводит к нулевым значениям токов/напряжений.
+    if protection_half_set and getattr(protection_half_set, "line", None):
+        protected_pf_name = str(getattr(protection_half_set.line, "pf_name", "") or "").strip()
+        if protected_pf_name:
+            filtered = []
+            removed = 0
+            for el in half_set_topology or []:
+                try:
+                    el_type = str(el.get("type", "") or "")
+                    el_loc = str(el.get("loc_name", "") or "").strip()
+                    # Удаляем только элементы ЛЭП, совпадающие по loc_name с pf_name защищаемой линии
+                    if el_type == "ЛЭП" and el_loc == protected_pf_name:
+                        removed += 1
+                        continue
+                except Exception:
+                    # На всякий случай не ломаем генерацию
+                    pass
+                filtered.append(el)
+            half_set_topology = filtered
+
     # Если есть полукомплект и включено кэширование
     if protection_half_set and use_cache:
         # Вычисляем хэш параметров генерации
