@@ -108,7 +108,7 @@ class SensitivityAnalysis(models.Model):
     STATUS_CHOICES = [
         ("Нечувствительна", "Нечувствительна"),
         ("Низкая чувствительность", "Низкая чувствительность"),
-        ("Чувствительность", "Чувствительность"),
+        ("Чувствительна", "Чувствительна"),
     ]
 
     settings_calculation = models.ForeignKey(
@@ -127,13 +127,56 @@ class SensitivityAnalysis(models.Model):
         default="Нечувствительна",
     )
 
+    @property
+    def computed_status(self) -> str:
+        """
+        Статус чувствительности с учетом требуемого порога для конкретного органа.
+
+        - Для большинства органов k_ч ≥ 2.0 (задается в SensitivityFaultMap)
+        - Для РНМ (РТНП/3I0_M0, РННП/3U0_M0) k_ч ≥ 1.5
+        - Для К МАН k_ч ≥ 1.3
+        - Для R-органов k_ч ≥ 1.0 (после приведения к общему виду)
+        """
+        rate = self.sensitivity_rate
+        if rate is None:
+            return "Нечувствительна"
+
+        # Орган
+        organ = None
+        try:
+            organ = self.settings_calculation.component.setting_designation
+        except Exception:
+            organ = None
+
+        # Порог по карте чувствительности (если доступно)
+        k_required = None
+        try:
+            from calculation.services.sensitivity_fault_map import SensitivityFaultMap
+
+            fault_map = SensitivityFaultMap.get_fault_map(organ) if organ else None
+            k_required = fault_map.get("k_ch_required") if fault_map else None
+        except Exception:
+            k_required = None
+
+        # Если порог задан — используем его (с учетом погрешности float)
+        eps = 1e-9
+        if isinstance(k_required, (int, float)):
+            if rate + eps >= float(k_required):
+                return "Чувствительна"
+            if rate + eps >= 1.0:
+                return "Низкая чувствительность"
+            return "Нечувствительна"
+
+        # Фолбэк: старое поведение (универсальные пороги)
+        if rate <= 1.0:
+            return "Нечувствительна"
+        if rate < 2.0:
+            return "Низкая чувствительность"
+        return "Чувствительна"
+
     def save(self, *args, **kwargs):
-        if self.sensitivity_rate <= 1:
-            self.status = "Нечувствительна"
-        elif 1 < self.sensitivity_rate < 2:
-            self.status = "Низкая чувствительность"
-        else:
-            self.status = "Чувствительна"
+        # Сохраняем вычисленный статус, чтобы он корректно отражал требования для органа
+        self.status = self.computed_status
         super().save(*args, **kwargs)
 
     class Meta:

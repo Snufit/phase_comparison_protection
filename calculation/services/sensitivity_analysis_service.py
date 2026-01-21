@@ -328,18 +328,29 @@ class SensitivityAnalysisService:
                             fault_value = fault_calculation.fault_values.get(
                                 target_fault_value
                             )
-                            if fault_value:
-                                self._log(
-                                    f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
-                                    f"подрежим '{fault_calculation.network_topology}': {target_fault_value} = {fault_value}"
-                                )
-                            if fault_value and (
-                                min_fault_value is None or fault_value < min_fault_value
-                            ):
-                                min_fault_value = fault_value
+                            if fault_value is None:
+                                continue
+
+                            # Приводим к float и игнорируем нулевые/отрицательные значения
+                            # (в логах PowerFactory для отключенных/невалидных подрежимов часто возвращает 0)
+                            try:
+                                fault_value_num = float(fault_value)
+                            except (ValueError, TypeError):
+                                continue
+
+                            if fault_value_num <= 0:
+                                continue
+
+                            self._log(
+                                f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
+                                f"подрежим '{fault_calculation.network_topology}': {target_fault_value} = {fault_value_num}"
+                            )
+
+                            if min_fault_value is None or fault_value_num < min_fault_value:
+                                min_fault_value = fault_value_num
                                 min_fault_calculation = fault_calculation
 
-                        if min_fault_calculation and min_fault_value:
+                        if min_fault_calculation is not None and min_fault_value is not None:
                             self._log(
                                 f"[DEBUG] Минимальное значение {target_fault_value} = {min_fault_value} "
                                 f"(КЗ {min_fault_calculation.fault_type} на {min_fault_calculation.fault_location}, "
@@ -651,64 +662,54 @@ class SensitivityAnalysisService:
                 return None
 
             # Ток КЗ на противоположном конце (для текущего полукомплекта)
+            # ВАЖНО: Ищем КЗ для ТЕКУЩЕГО полукомплекта на противоположном конце,
+            # а не для противоположного полукомплекта!
+            # Когда рассчитываем чувствительность для полукомплекта 1, нам нужен ток I1
+            # на противоположном конце, который был рассчитан для полукомплекта 1
             i1_3_opposite = None
-            fault_calc_opposite = (
-                FaultCalculation.objects.filter(
-                    calculation_meta=self.calculation_meta,
-                    protection_half_set=opposite_half_set,
-                    fault_type="К(3)",
+            all_opposite_faults = FaultCalculation.objects.filter(
+                calculation_meta=self.calculation_meta,
+                protection_half_set=protection_half_set,  # Ищем для ТЕКУЩЕГО полукомплекта
+                fault_type="К(3)",
+            ).exclude(fault_location__startswith="Ответвление:")
+            
+            # Ищем КЗ с ненулевым I1
+            for fault_calc in all_opposite_faults:
+                if fault_calc and fault_calc.fault_values:
+                    i1_value = fault_calc.fault_values.get("I1")
+                    if i1_value and float(i1_value) > 0:
+                        i1_3_opposite = float(i1_value)  # Значения уже в А
+                        self._log(
+                            f"[DEBUG] Найден ток I1={i1_3_opposite:.2f} А на противоположном конце "
+                            f"для полукомплекта {protection_half_set} (КЗ на {fault_calc.fault_location}, "
+                            f"подрежим '{fault_calc.network_topology}')"
+                        )
+                        break
+            
+            if i1_3_opposite is None:
+                self._log(
+                    f"[DEBUG] Не найдено КЗ типа К(3) с ненулевым I1 на противоположном конце "
+                    f"для полукомплекта {protection_half_set} (ID: {protection_half_set.id}). "
+                    f"Всего найдено КЗ: {all_opposite_faults.count()}"
                 )
-                .exclude(fault_location__startswith="Ответвление:")
-                .first()
-            )
-
-            if fault_calc_opposite and fault_calc_opposite.fault_values:
-                i1_value = fault_calc_opposite.fault_values.get("I1")
-                if i1_value:
-                    i1_3_opposite = float(i1_value)  # Значения уже в А
-                else:
-                    self._log(
-                        f"[DEBUG] Найдено КЗ на противоположном конце для {opposite_half_set}, но нет значения I1"
-                    )
-            else:
-                # Пробуем найти любое КЗ на противоположном конце, даже если не первое
-                all_opposite_faults = FaultCalculation.objects.filter(
-                    calculation_meta=self.calculation_meta,
-                    protection_half_set=opposite_half_set,
-                    fault_type="К(3)",
-                ).exclude(fault_location__startswith="Ответвление:")
-                
-                if all_opposite_faults.exists():
-                    fault_calc_opposite = all_opposite_faults.first()
-                    if fault_calc_opposite and fault_calc_opposite.fault_values:
-                        i1_value = fault_calc_opposite.fault_values.get("I1")
-                        if i1_value:
-                            i1_3_opposite = float(i1_value)
-                        else:
-                            self._log(
-                                f"[DEBUG] Найдено {all_opposite_faults.count()} КЗ на противоположном конце для {opposite_half_set}, но нет значения I1 в первом"
-                            )
-                else:
-                    self._log(
-                        f"[DEBUG] Не найдено КЗ типа К(3) на противоположном конце для полукомплекта {opposite_half_set} (ID: {opposite_half_set.id})"
-                    )
 
             # Ток КЗ на конце текущего полукомплекта (для расчета отношения)
+            # Ищем КЗ для противоположного полукомплекта на противоположном конце
+            # (это будет ток на конце текущего полукомплекта)
             i1_3_current = None
-            fault_calc_current = (
-                FaultCalculation.objects.filter(
-                    calculation_meta=self.calculation_meta,
-                    protection_half_set=protection_half_set,
-                    fault_type="К(3)",
-                )
-                .exclude(fault_location__startswith="Ответвление:")
-                .first()
-            )
-
-            if fault_calc_current and fault_calc_current.fault_values:
-                i1_value = fault_calc_current.fault_values.get("I1")
-                if i1_value:
-                    i1_3_current = float(i1_value)  # Значения уже в А
+            all_current_faults = FaultCalculation.objects.filter(
+                calculation_meta=self.calculation_meta,
+                protection_half_set=opposite_half_set,  # Ищем для противоположного полукомплекта
+                fault_type="К(3)",
+            ).exclude(fault_location__startswith="Ответвление:")
+            
+            # Ищем КЗ с ненулевым I1
+            for fault_calc in all_current_faults:
+                if fault_calc and fault_calc.fault_values:
+                    i1_value = fault_calc.fault_values.get("I1")
+                    if i1_value and float(i1_value) > 0:
+                        i1_3_current = float(i1_value)  # Значения уже в А
+                        break
 
             # Определяем I1^(3)_1 и I1^(3)_2 согласно формуле
             # I1^(3)_1 - ток КЗ со стороны полукомплекта 2 (противоположный для полукомплекта 1)
@@ -784,12 +785,15 @@ class SensitivityAnalysisService:
                 return None
 
             # Проверка: R_чувст ≤ 0.7 * R_ОТКЛ_уст
-            r_otkl_limit = 0.8 * r_otkl_ust
+            # Приводим к общему виду: k_ч = (0.7 * R_ОТКЛ_уст) / R_чувст
+            # k_ч ≥ 1 означает, что защита проходит (R_чувст ≤ 0.7 * R_ОТКЛ_уст)
+            r_otkl_limit = 1.7 * r_otkl_ust
 
-            # Коэффициент чувствительности = R_чувст / (0.8 * R_ОТКЛ_уст)
-            # Если коэффициент > 1, то защита не проходит по чувствительности
+            # Коэффициент чувствительности в общем виде: требуемое_значение / фактическое_значение
+            # Требуемое: 0.7 * R_ОТКЛ_уст
+            # Фактическое: R_чувст
             sensitivity_rate = (
-                r_chuvst / r_otkl_limit if r_otkl_limit > 0 else float("inf")
+                r_otkl_limit / r_chuvst if r_chuvst > 0 else float("inf")
             )
 
             self._log(
@@ -867,6 +871,8 @@ class SensitivityAnalysisService:
                     i0_value = fault_values.get("3I0")
                     if i0_value:
                         i0_a = float(i0_value)  # Значения уже в А
+                        if i0_a <= 0:
+                            continue
                         if min_value is None or i0_a < min_value:
                             min_value = i0_a
                 elif target_fault_value == "RNM_U0":
@@ -879,6 +885,10 @@ class SensitivityAnalysisService:
                         # Пока пропускаем, если нет явного значения
                         continue
                     u0_kv = float(u0_value)  # кВ (первичные величины)
+                    # 0 кВ обычно означает невалидный/обесточенный режим (в логах это "Отключение ..."),
+                    # его нельзя использовать как минимум для чувствительности.
+                    if u0_kv <= 0:
+                        continue
                     if min_value is None or u0_kv < min_value:
                         min_value = u0_kv
 
@@ -888,21 +898,68 @@ class SensitivityAnalysisService:
                 )
                 return None
 
-            # Коэффициент чувствительности = min_value / rnm_ust
-            # k_ч должен быть ≥ 1.5
-            sensitivity_rate = min_value / \
-                rnm_ust if rnm_ust > 0 else float("inf")
+            # Если есть смещение для РННП, учитываем его при расчете чувствительности
+            if target_fault_value == "RNM_U0":
+                calculation_factors = settings_calculation.calculation_factors or {}
+                z0_offset = calculation_factors.get("Сопротивление смещения Z₀_см, Ом")
+
+                if z0_offset and z0_offset > 0:
+                    # Находим минимальный ток срабатывания 3I0_МИН_СРАБ (уставка РТНП)
+                    min_3i0_srab = self._get_min_rtnp_setting_for_analysis(
+                        protection_half_set
+                    )
+
+                    if min_3i0_srab and min_3i0_srab > 0:
+                        # Формула (3.8): 3U₀_РНМ_разр ≤ (|3U₀| + 3I0_МИН_СРАБ · |Z₀_см|) / k_ч
+                        # Эффективное напряжение = |3U₀| + 3I0_МИН_СРАБ · |Z₀_см|
+                        # Z₀_см в Ом, 3I0 в А, результат в кВ: (А · Ом) / 1000 = кВ
+                        offset_voltage = (min_3i0_srab * z0_offset) / 1000  # кВ
+                        effective_u0 = min_value + offset_voltage
+
+                        sensitivity_rate = (
+                            effective_u0 / rnm_ust if rnm_ust > 0 else float("inf")
+                        )
+
+                        self._log(
+                            f"[DEBUG] РННП с смещением: 3U₀={min_value:.3f} кВ, "
+                            f"3I0_МИН_СРАБ={min_3i0_srab:.3f} А, Z₀_см={z0_offset:.3f} Ом, "
+                            f"добавка={offset_voltage:.3f} кВ, эффективное 3U₀={effective_u0:.3f} кВ, "
+                            f"k_ч={sensitivity_rate:.2f}"
+                        )
+                    else:
+                        # Если не удалось найти минимальный ток, используем стандартный расчет
+                        self._log(
+                            f"[WARNING] Не удалось найти минимальный ток 3I0_МИН_СРАБ "
+                            f"для расчета чувствительности с учетом смещения, используем стандартный расчет"
+                        )
+                        sensitivity_rate = (
+                            min_value / rnm_ust if rnm_ust > 0 else float("inf")
+                        )
+                else:
+                    # Если смещения нет, используем стандартный расчет
+                    sensitivity_rate = (
+                        min_value / rnm_ust if rnm_ust > 0 else float("inf")
+                    )
+            else:
+                # Для РТНП используем стандартный расчет
+                sensitivity_rate = (
+                    min_value / rnm_ust if rnm_ust > 0 else float("inf")
+                )
 
             # Проверяем условие k_ч ≥ 1.5
+            # ВАЖНО: из-за двоичной арифметики float (и округления в логах до 2 знаков)
+            # значение может печататься как 1.50, но быть 1.499999..., что дает "НЕТ".
+            # Поэтому используем небольшой допуск.
             k_ch_required = 1.5
-            is_sensitive = sensitivity_rate >= k_ch_required
+            eps = 1e-9
+            is_sensitive = sensitivity_rate + eps >= k_ch_required
 
             # Для отладки: проверяем единицы измерения
             unit = "кВ" if target_fault_value == "RNM_U0" else "А"
             self._log(
                 f"[DEBUG] РНМ чувствительность ({target_fault_value}): "
                 f"min_value={min_value:.4f} {unit}, уставка={rnm_ust:.4f} {unit}, "
-                f"k_ч={sensitivity_rate:.2f}, требуется ≥ {k_ch_required}, "
+                f"k_ч={sensitivity_rate:.4f}, требуется ≥ {k_ch_required}, "
                 f"проходит={'ДА' if is_sensitive else 'НЕТ'}"
             )
 
@@ -914,6 +971,57 @@ class SensitivityAnalysisService:
 
             self._log(f"[ERROR] Traceback: {traceback.format_exc()}")
             return None
+
+    def _get_min_rtnp_setting_for_analysis(
+        self, protection_half_set
+    ) -> Optional[float]:
+        """
+        Находит минимальный ток срабатывания 3I0_МИН_СРАБ для анализа чувствительности.
+
+        Это минимальное значение уставки РТНП/3I0_M0 среди всех полукомплектов защиты линии.
+
+        Args:
+            protection_half_set: Полукомплект защиты (для получения линии)
+
+        Returns:
+            Минимальное значение уставки РТНП в А или None
+        """
+        # Получаем линию из полукомплекта
+        line = protection_half_set.line
+        protection_half_sets = line.protection_half_sets.all()
+
+        # Находим компонент РТНП/3I0_M0
+        try:
+            rtnp_component = Component.objects.get(setting_designation="РТНП/3I0_M0")
+        except Component.DoesNotExist:
+            self._log(
+                "[WARNING] Компонент РТНП/3I0_M0 не найден в БД"
+            )
+            return None
+
+        # Ищем все расчеты РТНП для всех полукомплектов данной линии
+        rtnp_settings = SettingsCalculation.objects.filter(
+            calculation_meta=self.calculation_meta,
+            component=rtnp_component,
+            protection_half_set__in=protection_half_sets
+        )
+
+        min_value = None
+        for setting in rtnp_settings:
+            if setting.result_value and (min_value is None or setting.result_value < min_value):
+                min_value = setting.result_value
+
+        if min_value is None:
+            self._log(
+                "[WARNING] Не найдены расчеты РТНП/3I0_M0 для определения минимального тока 3I0_МИН_СРАБ"
+            )
+        else:
+            self._log(
+                f"[DEBUG] Найден минимальный ток 3I0_МИН_СРАБ={min_value:.3f} А "
+                f"для линии {getattr(line, 'pf_name', None) or str(line)}"
+            )
+
+        return min_value
 
     def _calculate_3i0_sensitivity(
         self,
@@ -964,6 +1072,9 @@ class SensitivityAnalysisService:
                 i0_value = fault_values.get("3I0")
                 if i0_value:
                     i0_a = float(i0_value)  # Значения уже в А
+                    # Игнорируем нулевые/отрицательные значения (обычно это невалидный/обесточенный подрежим)
+                    if i0_a <= 0:
+                        continue
                     self._log(
                         f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
                         f"подрежим '{fault_calculation.network_topology}': 3I0 = {i0_a:.3f} А"
@@ -1073,7 +1184,7 @@ class SensitivityAnalysisService:
         if denominator == 0:
             return 0.0
 
-        sensitivity_rate = (i1_fault * 2) / denominator
+        sensitivity_rate = (i1_fault * 2) / (denominator / 2)
         sensitivity_rate = round(sensitivity_rate, 2)
 
         # Проверяем условие k_ч ≥ 1.3

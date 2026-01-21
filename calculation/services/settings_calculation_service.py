@@ -1,6 +1,6 @@
 from math import sqrt, atan, tan, cos, sin, radians, degrees
 from decimal import Decimal
-from typing import Callable, Dict, Tuple
+from typing import Callable, Dict, Tuple, Optional
 
 from calculation.models import CalculationMeta, FaultCalculation, SettingsCalculation
 from calculation.services.fault_calculation_service import FaultCalculationService
@@ -730,7 +730,8 @@ class SettingsCalculationService:
 
     def calculate_rnnp(self) -> Tuple[float, Dict[str, float]]:
         """
-        Рассчитывает уставку реле направления мощности нулевой последовательности по напряжению.
+        Рассчитывает уставку реле направления мощности нулевой последовательности по напряжению
+        с возможным применением смещения в защищаемую зону.
 
         Формула: 3U0_РНМ ≥ k_отс/k_в * (U_0нб + 3U0н.р)
         где:
@@ -738,6 +739,8 @@ class SettingsCalculationService:
         - 3U0н.р = 0 (при отсутствии несимметрии)
         - k_отс - коэффициент отстройки (1.25)
         - k_в - коэффициент возврата (0.9)
+
+        Если чувствительность без смещения недостаточна, рассчитывается сопротивление смещения Z₀_см.
         """
         rnnp_grading_factor = self.calculation_factors.get(
             "rnnp_grading_factor", 1.25)
@@ -766,12 +769,294 @@ class SettingsCalculationService:
             * (u0_imbalance_primary + u0_asymmetry)
         )
 
+        # ВАЖНО: итоговая уставка далее округляется при сохранении результата (см. run()).
+        # Для проверки чувствительности и расчета смещения используем именно "итоговую" уставку,
+        # иначе можно посчитать Z₀_см под 2.646 кВ, а в анализе чувствительности будет 3.0 кВ
+        # и смещения окажется недостаточно.
+        rnnp_value_for_sensitivity = round(rnnp_value, 0)
+
         calculation_factors = {
             "Коэффициент отстройки": rnnp_grading_factor,
             "Коэффициент возврата": rnnp_reset_factor,
             "Напряжение небаланса (вторичное, В)": rnnp_imbalance_voltage_secondary,
         }
+
+        # Проверяем, задано ли значение смещения пользователем
+        user_offset_resistance = self.calculation_factors.get("rnnp_offset_resistance")
+        
+        # Если значение задано пользователем, используем его
+        if user_offset_resistance is not None and user_offset_resistance != "":
+            try:
+                z0_offset_user = float(user_offset_resistance)
+                if z0_offset_user >= 0:
+                    calculation_factors["Сопротивление смещения Z₀_см, Ом"] = z0_offset_user
+                    FaultCalculationService._log(
+                        f"[DEBUG] РННП: использовано заданное пользователем смещение Z₀_см={z0_offset_user:.3f} Ом"
+                    )
+                else:
+                    FaultCalculationService._log(
+                        f"[WARNING] РННП: заданное пользователем значение смещения отрицательное ({z0_offset_user:.3f} Ом), "
+                        f"будет рассчитано автоматически"
+                    )
+                    user_offset_resistance = None  # Сбрасываем, чтобы рассчитать автоматически
+            except (ValueError, TypeError):
+                FaultCalculationService._log(
+                    f"[WARNING] РННП: неверное значение смещения от пользователя, будет рассчитано автоматически"
+                )
+                user_offset_resistance = None
+
+        # Если значение не задано пользователем, рассчитываем автоматически
+        if user_offset_resistance is None or user_offset_resistance == "":
+            # Проверка чувствительности и расчет смещения в защищаемую зону
+            # Ищем минимальное 3U₀ при КЗ в конце зоны действия
+            min_3u0_at_zone_end = self._get_min_3u0_at_zone_end()
+
+            if min_3u0_at_zone_end is not None:
+                # Проверяем чувствительность БЕЗ смещения
+                k_ch_required = 1.5
+                sensitivity_without_offset = (
+                    min_3u0_at_zone_end / rnnp_value_for_sensitivity
+                    if rnnp_value_for_sensitivity > 0
+                    else 0
+                )
+
+                FaultCalculationService._log(
+                    f"[DEBUG] РННП: проверка чувствительности без смещения: "
+                    f"3U₀_мин={min_3u0_at_zone_end:.3f} кВ, "
+                    f"уставка={rnnp_value_for_sensitivity:.3f} кВ, k_ч={sensitivity_without_offset:.2f}"
+                )
+
+                # Если чувствительность недостаточна, применяем смещение
+                if sensitivity_without_offset < k_ch_required:
+                    # Рассчитываем Z₀_см по формуле (3.9)
+                    z0_offset = self._calculate_offset_resistance(
+                        rnnp_value_for_sensitivity, min_3u0_at_zone_end
+                    )
+
+                    if z0_offset and z0_offset > 0:
+                        calculation_factors["Сопротивление смещения Z₀_см, Ом"] = z0_offset
+                        FaultCalculationService._log(
+                            f"[DEBUG] РННП: автоматически рассчитано смещение Z₀_см={z0_offset:.3f} Ом "
+                            f"(чувствительность без смещения: {sensitivity_without_offset:.2f} < {k_ch_required})"
+                        )
+                    else:
+                        FaultCalculationService._log(
+                            f"[WARNING] РННП: не удалось рассчитать смещение Z₀_см "
+                            f"при недостаточной чувствительности ({sensitivity_without_offset:.2f} < {k_ch_required})"
+                        )
+                else:
+                    FaultCalculationService._log(
+                        f"[DEBUG] РННП: чувствительность достаточна без смещения "
+                        f"(k_ч={sensitivity_without_offset:.2f} ≥ {k_ch_required}), смещение не требуется"
+                    )
+
         return rnnp_value, calculation_factors
+
+    def _get_min_rtnp_setting(self) -> Optional[float]:
+        """
+        Находит минимальный ток срабатывания 3I0_МИН_СРАБ для всех полукомплектов линии.
+
+        Это минимальное значение уставки РТНП/3I0_M0 среди всех полукомплектов защиты.
+
+        Returns:
+            Минимальное значение уставки РТНП в А или None
+        """
+        # Находим компонент РТНП/3I0_M0
+        try:
+            rtnp_component = Component.objects.get(setting_designation="РТНП/3I0_M0")
+        except Component.DoesNotExist:
+            FaultCalculationService._log(
+                "[WARNING] Компонент РТНП/3I0_M0 не найден в БД"
+            )
+            return None
+
+        # Ищем все расчеты РТНП для всех полукомплектов данной линии
+        rtnp_settings = SettingsCalculation.objects.filter(
+            calculation_meta=self.calculation_meta,
+            component=rtnp_component,
+            protection_half_set__in=self.protection_half_sets
+        )
+
+        min_value = None
+        for setting in rtnp_settings:
+            if setting.result_value and (min_value is None or setting.result_value < min_value):
+                min_value = setting.result_value
+
+        if min_value is None:
+            FaultCalculationService._log(
+                "[WARNING] Не найдены расчеты РТНП/3I0_M0 для определения минимального тока 3I0_МИН_СРАБ"
+            )
+        else:
+            FaultCalculationService._log(
+                f"[DEBUG] Найден минимальный ток 3I0_МИН_СРАБ={min_value:.3f} А "
+                f"для линии {getattr(self.line, 'pf_name', None) or str(self.line)}"
+            )
+
+        return min_value
+
+    def _get_min_3u0_at_zone_end(self) -> Optional[float]:
+        """
+        Находит минимальное напряжение 3U₀ при КЗ в конце зоны действия полукомплекта.
+
+        Практический смысл для РННП/3U0_M0 в этой задаче:
+        - если есть рассчитанные КЗ на ответвлениях (fault_location начинается с "Ответвление:"),
+          то "конец зоны действия" для проверки чувствительности берем именно по ним
+          (см. логи: 3U0 на ответвлении есть и используется в анализе чувствительности).
+        - если ответвлений нет, используем КЗ на противоположном конце линии (не-ответвления).
+
+        Returns:
+            Минимальное значение 3U₀ в кВ или None
+        """
+        min_3u0 = None
+
+        # 1) Приоритет: КЗ на ответвлениях
+        for half_set in self.protection_half_sets:
+            branch_faults = FaultCalculation.objects.filter(
+                calculation_meta=self.calculation_meta,
+                protection_half_set=half_set,
+                fault_type="К(1)"
+            ).filter(
+                fault_location__startswith="Ответвление:"
+            )
+
+            FaultCalculationService._log(
+                f"[DEBUG] Поиск КЗ на ответвлениях для полукомплекта {half_set}: "
+                f"найдено {branch_faults.count()} КЗ типа К(1) (на ответвлениях)"
+            )
+
+            for fault in branch_faults:
+                fault_values = fault.fault_values or {}
+                u0 = fault_values.get("3U0")
+
+                if u0 is not None:
+                    try:
+                        u0_kv = float(u0)  # кВ
+                        # ВАЖНО: 0 кВ часто означает невалидный/обесточенный режим (например, отключение линии),
+                        # такой случай не должен определять "минимум" для проверки чувствительности.
+                        if u0_kv <= 0:
+                            continue
+                        FaultCalculationService._log(
+                            f"[DEBUG] КЗ на {fault.fault_location}, подрежим '{fault.network_topology}': "
+                            f"3U₀={u0_kv:.3f} кВ"
+                        )
+                        if min_3u0 is None or u0_kv < min_3u0:
+                            min_3u0 = u0_kv
+                    except (ValueError, TypeError) as e:
+                        FaultCalculationService._log(
+                            f"[DEBUG] Ошибка при преобразовании 3U₀ для КЗ на {fault.fault_location}: {e}, "
+                            f"значение: {u0}"
+                        )
+                        continue
+                else:
+                    FaultCalculationService._log(
+                        f"[DEBUG] КЗ на {fault.fault_location}, подрежим '{fault.network_topology}': "
+                        f"нет значения 3U₀ в fault_values. Доступные ключи: {list(fault_values.keys()) if fault_values else 'нет данных'}"
+                    )
+
+        # 2) Фоллбэк: если ответвлений нет/не дали 3U0 — ищем на противоположном конце (не-ответвления)
+        if min_3u0 is None:
+            for half_set in self.protection_half_sets:
+                opposite_faults = FaultCalculation.objects.filter(
+                    calculation_meta=self.calculation_meta,
+                    protection_half_set=half_set,
+                    fault_type="К(1)"
+                ).exclude(
+                    fault_location__startswith="Ответвление:"
+                )
+
+                FaultCalculationService._log(
+                    f"[DEBUG] Поиск КЗ на противоположном конце для полукомплекта {half_set}: "
+                    f"найдено {opposite_faults.count()} КЗ типа К(1) (не на ответвлениях)"
+                )
+
+                for fault in opposite_faults:
+                    fault_values = fault.fault_values or {}
+                    u0 = fault_values.get("3U0")
+
+                    if u0 is None:
+                        continue
+
+                    try:
+                        u0_kv = float(u0)  # кВ
+                    except (ValueError, TypeError):
+                        continue
+
+                    if u0_kv <= 0:
+                        continue
+
+                    if min_3u0 is None or u0_kv < min_3u0:
+                        min_3u0 = u0_kv
+
+        if min_3u0 is None:
+            FaultCalculationService._log(
+                "[WARNING] Не найдено минимальное напряжение 3U₀ при КЗ в конце зоны действия"
+            )
+        else:
+            FaultCalculationService._log(
+                f"[DEBUG] Найдено минимальное напряжение 3U₀={min_3u0:.3f} кВ "
+                f"при КЗ в конце зоны действия"
+            )
+
+        return min_3u0
+
+    def _calculate_offset_resistance(
+        self,
+        rnnp_ust: float,  # Уставка РННП в кВ
+        min_3u0: float   # Минимальное напряжение 3U₀ в кВ
+    ) -> Optional[float]:
+        """
+        Рассчитывает сопротивление смещения Z₀_см по формуле (3.9).
+
+        Формула: |Z₀_см| ≥ (k_ч · 3U₀_РНМ_разр - |3U₀|) / 3I0_МИН_СРАБ
+
+        где:
+        - k_ч = 1.5 - коэффициент чувствительности
+        - 3U₀_РНМ_разр - напряжение срабатывания РНМ (rnnp_ust) в кВ
+        - 3U₀ - напряжение нулевой последовательности при минимальном токе в кВ
+        - 3I0_МИН_СРАБ - минимальный ток срабатывания РТНП/3I0_M0 среди всех полукомплектов в А
+
+        Args:
+            rnnp_ust: Уставка РННП в кВ
+            min_3u0: Минимальное напряжение 3U₀ в кВ
+
+        Returns:
+            Значение Z₀_см в Ом или None, если расчет невозможен
+        """
+        k_ch = 1.5  # Коэффициент чувствительности
+
+        # 1. Найти минимальный ток срабатывания 3I0_МИН_СРАБ
+        # Это минимальное значение уставки РТНП/3I0_M0 среди всех полукомплектов линии
+        min_3i0_srab = self._get_min_rtnp_setting()
+
+        if not min_3i0_srab or min_3i0_srab <= 0:
+            FaultCalculationService._log(
+                "[WARNING] Не удалось определить минимальный ток 3I0_МИН_СРАБ "
+                "(уставка РТНП/3I0_M0) для расчета смещения"
+            )
+            return None
+
+        # 2. Рассчитываем Z₀_см по формуле (3.9)
+        # |Z₀_см| ≥ (k_ч · 3U₀_РНМ_разр - |3U₀|) / 3I0_МИН_СРАБ
+        numerator = k_ch * rnnp_ust - abs(min_3u0)
+
+        if numerator <= 0:
+            FaultCalculationService._log(
+                f"[WARNING] Расчет Z₀_см дал неположительное значение: "
+                f"k_ч·3U₀_РНМ={k_ch * rnnp_ust:.3f} кВ, |3U₀|={abs(min_3u0):.3f} кВ"
+            )
+            return None
+
+        z0_offset = numerator / min_3i0_srab  # кВ / А = кОм, но нужно в Ом
+        # Переводим из кВ/А в Ом: 1 кВ/А = 1000 Ом
+        z0_offset_ohm = z0_offset * 1000
+
+        FaultCalculationService._log(
+            f"[DEBUG] Расчет Z₀_см: k_ч={k_ch}, 3U₀_РНМ={rnnp_ust:.3f} кВ, "
+            f"3U₀={min_3u0:.3f} кВ, 3I0_МИН_СРАБ={min_3i0_srab:.3f} А, "
+            f"Z₀_см={z0_offset_ohm:.3f} Ом"
+        )
+
+        return round(z0_offset_ohm, 3)
 
     def calculate_r_break(self) -> Tuple[float, Dict[str, float]]:
         """
@@ -1298,7 +1583,22 @@ class SettingsCalculationService:
                 # Продолжаем для следующего полукомплекта
                 continue
 
-            for component in components:
+            # ВАЖНО: некоторые расчеты зависят от результатов других органов.
+            # Например, РННП/3U0_M0 (смещение Z0см) использует 3I0_МИН_СРАБ,
+            # который берется из уставок РТНП/3I0_M0. Поэтому гарантируем порядок:
+            # сначала считаем РТНП, затем РННП.
+            priority = [
+                "РТНП/3I0_M0",
+                "РННП/3U0_M0",
+            ]
+            components_list = list(components)
+            components_list.sort(
+                key=lambda c: priority.index(c.setting_designation)
+                if c.setting_designation in priority
+                else 999
+            )
+
+            for component in components_list:
                 # Пропускаем необязательные органы, если они отключены
                 # Необязательные органы: U2 БЛОК, U2 ОТКЛ, 3I0 БЛОК, 3I0 ОТКЛ, DI1 БЛОК, DI1 ОТКЛ, DI2 БЛОК, DI2 ОТКЛ
                 organ_name = component.setting_designation

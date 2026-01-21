@@ -28,7 +28,7 @@ from .services.settings_calculation_map import SETTINGS_CALCULATION_MAP
 from .services.project_sync_service import ProjectSyncService
 from .services.fault_calculation_service import FaultCalculationService
 from .services.submodes_generator import generate_half_set_submodes
-from .services.powerfactory_locator import get_pf_line_data, get_pf_line
+from .services.powerfactory_locator import get_pf_line_data, get_pf_line, get_line_data_from_model
 
 FAULT_TYPE_COLORS = {
     "К(3)": {
@@ -721,12 +721,49 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 project_name = request.session.get("pf_project_name")
                 app = self.pf_manager.get_application(project_name=project_name)
 
-                pf_line = get_pf_line(app, line.pf_name)
-                pf_line_data = get_pf_line_data(pf_line)
-                request.session["line_data"] = pf_line_data
-
-                # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
-                line.update_voltage_from_pf(app)
+                # Пытаемся получить данные из PowerFactory
+                pf_line = None
+                pf_line_data = None
+                
+                try:
+                    pf_line = get_pf_line(app, line.pf_name)
+                    if pf_line:
+                        pf_line_data = get_pf_line_data(pf_line)
+                        if pf_line_data:
+                            request.session["line_data"] = pf_line_data
+                            # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
+                            try:
+                                line.update_voltage_from_pf(app)
+                            except RuntimeError as e:
+                                if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
+                                    FaultCalculationService._log("[DEBUG] Ошибка многопоточности при обновлении напряжения из PowerFactory, пропускаем")
+                except RuntimeError as e:
+                    if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
+                        FaultCalculationService._log("[DEBUG] Ошибка многопоточности при получении данных ЛЭП из PowerFactory")
+                    else:
+                        raise
+                
+                # Если не удалось получить данные из PowerFactory, используем альтернативные источники
+                if not pf_line_data:
+                    # Сначала проверяем сессию
+                    if "line_data" in request.session:
+                        FaultCalculationService._log("[DEBUG] Используем данные ЛЭП из сессии (PowerFactory недоступен)")
+                        pf_line_data = request.session["line_data"]
+                    else:
+                        # Пробуем получить данные из модели Line
+                        pf_line_data = get_line_data_from_model(line)
+                        if pf_line_data:
+                            FaultCalculationService._log(f"[DEBUG] Используем данные ЛЭП из модели (PowerFactory недоступен)")
+                            request.session["line_data"] = pf_line_data
+                        else:
+                            # Если данных нет нигде, это критическая ошибка
+                            FaultCalculationService._log(f"[ERROR] Не удалось получить данные ЛЭП ни из PowerFactory, ни из сессии, ни из модели для ЛЭП {line.pf_name}")
+                            messages.error(
+                                request,
+                                f"Не удалось получить данные ЛЭП из PowerFactory из-за ошибки многопоточности. "
+                                f"Попробуйте перезапустить сервер с флагом --nothreading или обновить данные ЛЭП."
+                            )
+                            return redirect("calculation:")
 
                 # Если ТН еще не установлен, пытаемся найти подходящий по напряжению
                 # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)

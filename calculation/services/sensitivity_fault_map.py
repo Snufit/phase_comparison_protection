@@ -114,7 +114,8 @@ class SensitivityFaultMap:
             "fault_value": "RNM_I0",  # Специальное значение для РНМ
             "formula": "k_ч = 3I0_мин / 3I0 РНМ",
             "k_sx": 1.0,
-            "k_ch_required": 2.0,
+            # Для органов РНМ принимаем k_ч = 1.5 (см. расчёт/логи и методику)
+            "k_ch_required": 1.5,
             "use_min_value": True,  # Использовать минимальное значение
             "exclude_branches": False,  # Только на ответвлениях
             "requires_branches": True,  # Только для ЛЭП с ответвлениями
@@ -127,7 +128,8 @@ class SensitivityFaultMap:
             "fault_value": "RNM_U0",  # Специальное значение для РНМ
             "formula": "k_ч = 3U0_мин / 3U0 РНМ",
             "k_sx": 1.0,
-            "k_ch_required": 2.0,
+            # Для органов РНМ принимаем k_ч = 1.5 (см. расчёт/логи и методику)
+            "k_ch_required": 1.5,
             "use_min_value": True,  # Использовать минимальное значение
             "exclude_branches": False,  # Только на ответвлениях
             "requires_branches": True,  # Только для ЛЭП с ответвлениями
@@ -141,7 +143,7 @@ class SensitivityFaultMap:
             "formula": "R_чувст = 1.5 * (max(R_max_отв или R1_уд * L) + R_дуги * (1 + (I1^(3)_2 / I1^(3)_1)))",
             "check_formula": "R_чувст ≤ 0.7 * R_ОТКЛ_уст",
             "k_sx": 1.0,
-            "k_ch_required": None,  # Специальная проверка
+            "k_ch_required": 1.0,  # После приведения к общему виду: k_ч = (0.7 * R_ОТКЛ) / R_чувст ≥ 1.0
             "use_min_value": False,
             "exclude_branches": False,  # Нужны оба места
             "r_dugi": 0.15,  # Сопротивление дуги (Ом)
@@ -154,7 +156,7 @@ class SensitivityFaultMap:
             "formula": "R_чувст = 1.5 * (max(R_max_отв или R1_уд * L) + R_дуги * (1 + (I1^(3)_2 / I1^(3)_1)))",
             "check_formula": "R_чувст ≤ 0.7 * R_ОТКЛ_уст",
             "k_sx": 1.0,
-            "k_ch_required": None,  # Специальная проверка
+            "k_ch_required": 1.0,  # После приведения к общему виду: k_ч = (0.7 * R_ОТКЛ) / R_чувст ≥ 1.0
             "use_min_value": False,
             "exclude_branches": False,  # Нужны оба места
             "r_dugi": 0.15,  # Сопротивление дуги (Ом)

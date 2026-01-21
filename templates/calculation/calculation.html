@@ -619,7 +619,7 @@
                                                 {{ factor_data.label }}
                                             </label>
                                             <input type="number" 
-                                                   class="form-control form-control-lg" 
+                                                   class="form-control form-control-lg {% if organ.toggleable and not organ.enabled %}bg-light{% endif %}" 
                                                    id="id_{{ factor_key }}"
                                                    name="{{ factor_key }}"
                                                    value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
@@ -627,8 +627,7 @@
                                                    min="{% if factor_data.min is not None %}{{ factor_data.min|unlocalize }}{% else %}0{% endif %}" 
                                                    max="{% if factor_data.max is not None %}{{ factor_data.max|unlocalize }}{% endif %}"
                                                    {% if organ.toggleable and not organ.enabled %}disabled{% endif %} 
-                                                   required
-                                                   style="{% if organ.toggleable and not organ.enabled %}background-color: #e9ecef;{% endif %}">
+                                                   {% if factor_key != 'rnnp_offset_resistance' %}required{% endif %}>
                                         </div>
                                         {% endfor %}
                                     </div>

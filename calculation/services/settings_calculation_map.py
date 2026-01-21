@@ -208,7 +208,7 @@ SETTINGS_CALCULATION_MAP = {
                 "default_value": 1.25,
                 "min": 1.2,
                 "max": 2.0,
-                "step": 0.1,
+                "step": 0.05,
             },
             "rtnp_reset_factor": {
                 "label": "Коэффициент возврата",
@@ -234,7 +234,7 @@ SETTINGS_CALCULATION_MAP = {
                 "default_value": 1.25,
                 "min": 1.2,
                 "max": 2.0,
-                "step": 0.1,
+                "step": 0.05,
             },
             "rnnp_reset_factor": {
                 "label": "Коэффициент возврата",
@@ -249,6 +249,13 @@ SETTINGS_CALCULATION_MAP = {
                 "min": 1.5,
                 "max": 2.0,
                 "step": 0.1,
+            },
+            "rnnp_offset_resistance": {
+                "label": "Сопротивление смещения Z₀_см, Ом",
+                "default_value": None,
+                "min": 0.0,
+                "max": 100.0,
+                "step": 0.01,
             },
         },
         "calculation_function": "calculate_rnnp",

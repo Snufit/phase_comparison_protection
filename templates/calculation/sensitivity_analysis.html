@@ -32,12 +32,12 @@
                     <td>{{ result.fault_calculation.fault_type }}</td>
                     <td>{{ result.sensitivity_rate }}</td>
                     <td>
-                        {% if result.status == 'Нечувствительна' %}
-                            <span class="badge rounded-pill bg-danger">{{ result.status }}</span>
-                        {% elif result.status == 'Низкая чувствительность' %}
-                            <span class="badge rounded-pill bg-warning">{{ result.status }}</span>
+                        {% if result.computed_status == 'Нечувствительна' %}
+                            <span class="badge rounded-pill bg-danger">{{ result.computed_status }}</span>
+                        {% elif result.computed_status == 'Низкая чувствительность' %}
+                            <span class="badge rounded-pill bg-warning">{{ result.computed_status }}</span>
                         {% else %}
-                            <span class="badge rounded-pill bg-success">{{ result.status }}</span>
+                            <span class="badge rounded-pill bg-success">{{ result.computed_status }}</span>
                         {% endif %}
                     </td>
                 </tr>
