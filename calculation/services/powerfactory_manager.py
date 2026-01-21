@@ -54,7 +54,7 @@ class PowerFactoryManager:
     _projects_cache = None
     _projects_cache_time = 0
     # Время жизни кэша в секундах (увеличено для уменьшения частоты запросов)
-    _cache_ttl = 60
+    _cache_ttl = 300  # 5 минут вместо 1 минуты
 
     def __init__(self):
         # Добавляем путь только если его еще нет в sys.path
@@ -69,7 +69,7 @@ class PowerFactoryManager:
                 _log(f"[WARNING] Обнаружено {active_threads} активных потоков. "
                       f"PowerFactory требует однопоточный режим. "
                       f"Запустите сервер с флагом --nothreading: "
-                      f"python manage.py runserver --nothreading")
+                      f"python manage.py runserver --nothreading --noreload")
             PowerFactoryManager._threading_warning_shown = True
 
     @handle_threading_error
@@ -424,13 +424,33 @@ class PowerFactoryManager:
         """
         Получает список доступных проектов PowerFactory.
         Использует активный проект и пытается получить список через DataFolder.
-        Использует кэширование для уменьшения частоты запросов к PowerFactory.
+        Использует двухуровневое кэширование (Django кэш + in-memory кэш) 
+        для уменьшения частоты запросов к PowerFactory.
         При ошибках многопоточности выполняет повторные попытки с пересозданием app.
 
         Returns:
             List[str]: Список имен доступных проектов
         """
-        # Проверяем кэш
+        # Уровень 1: Проверяем Django кэш (быстрее и работает между процессами)
+        try:
+            from django.core.cache import cache
+            cache_key = 'powerfactory_available_projects'
+            cached_projects = cache.get(cache_key)
+            if cached_projects is not None:
+                _log(
+                    f"[DEBUG] Используем Django кэш для списка проектов")
+                # Обновляем in-memory кэш для совместимости
+                self._projects_cache = cached_projects.copy()
+                self._projects_cache_time = time.time()
+                return cached_projects.copy()
+        except (ImportError, AttributeError, RuntimeError) as e:
+            # Django может быть еще не инициализирован при импорте модуля
+            # Игнорируем ошибки импорта/инициализации Django кэша
+            pass
+        except Exception as e:
+            _log(f"[DEBUG] Ошибка при получении Django кэша: {e}")
+        
+        # Уровень 2: Проверяем in-memory кэш
         current_time = time.time()
         if (self._projects_cache is not None and
             (current_time - self._projects_cache_time) < self._cache_ttl):
@@ -619,7 +639,24 @@ class PowerFactoryManager:
             # Если получили пустой set (из-за ошибки многопоточности), используем кэш
             if not projects_set:
                 _log("[DEBUG] Не удалось получить проекты из-за ошибки многопоточности, используем кэш")
-                # Сначала проверяем текущий кэш
+                # Сначала проверяем Django кэш
+                try:
+                    from django.core.cache import cache
+                    cache_key = 'powerfactory_available_projects'
+                    cached_projects = cache.get(cache_key)
+                    if cached_projects is not None:
+                        _log(f"[DEBUG] Используем Django кэш из-за ошибки многопоточности")
+                        # Обновляем in-memory кэш
+                        self._projects_cache = cached_projects.copy()
+                        self._projects_cache_time = time.time()
+                        return cached_projects.copy()
+                except (ImportError, AttributeError, RuntimeError):
+                    # Django может быть еще не инициализирован при импорте модуля
+                    pass
+                except Exception as e:
+                    _log(f"[DEBUG] Ошибка при получении Django кэша: {e}")
+                
+                # Затем проверяем текущий in-memory кэш
                 if self._projects_cache is not None:
                     cache_age = int(time.time() - self._projects_cache_time)
                     # Используем кэш даже если он очень старый (до 10 минут)
@@ -654,9 +691,20 @@ class PowerFactoryManager:
             
             if available_projects:
                 _log(f"Найдено проектов: {len(available_projects)} - {', '.join(available_projects)}")
-                # Сохраняем в кэш
+                # Сохраняем в оба кэша
                 self._projects_cache = available_projects.copy()
                 self._projects_cache_time = time.time()
+                # Сохраняем в Django кэш на 10 минут (600 секунд)
+                try:
+                    from django.core.cache import cache
+                    cache_key = 'powerfactory_available_projects'
+                    cache.set(cache_key, available_projects, 600)
+                    _log(f"[DEBUG] Сохранено в Django кэш на 10 минут")
+                except (ImportError, AttributeError, RuntimeError):
+                    # Django может быть еще не инициализирован при импорте модуля
+                    pass
+                except Exception as e:
+                    _log(f"[DEBUG] Ошибка при сохранении в Django кэш: {e}")
             else:
                 _log("Проекты не найдены")
                 # Если проекты не найдены, но кэш есть - используем его
@@ -670,7 +718,20 @@ class PowerFactoryManager:
             
         except ModuleNotFoundError as e:
             _log(f"ModuleNotFoundError: PowerFactory модуль не найден. Убедитесь, что PowerFactory установлен и запущен. {e}")
-            # Если есть кэш, используем его
+            # Сначала проверяем Django кэш
+            try:
+                from django.core.cache import cache
+                cache_key = 'powerfactory_available_projects'
+                cached_projects = cache.get(cache_key)
+                if cached_projects is not None:
+                    _log(f"[DEBUG] Используем Django кэш из-за ModuleNotFoundError")
+                    return cached_projects.copy()
+            except (ImportError, AttributeError, RuntimeError):
+                # Django может быть еще не инициализирован при импорте модуля
+                pass
+            except Exception:
+                pass
+            # Если есть in-memory кэш, используем его
             if self._projects_cache is not None:
                 cache_age = int(time.time() - self._projects_cache_time)
                 if cache_age < self._cache_ttl * 2:
@@ -680,7 +741,23 @@ class PowerFactoryManager:
         except RuntimeError as e:
             if "can't be used from other threads" in str(e):
                 _log(f"[DEBUG] Критическая ошибка многопоточности при получении списка проектов")
-                # Сначала проверяем текущий кэш
+                # Сначала проверяем Django кэш
+                try:
+                    from django.core.cache import cache
+                    cache_key = 'powerfactory_available_projects'
+                    cached_projects = cache.get(cache_key)
+                    if cached_projects is not None:
+                        _log(f"[DEBUG] Используем Django кэш из-за ошибки многопоточности")
+                        # Обновляем in-memory кэш
+                        self._projects_cache = cached_projects.copy()
+                        self._projects_cache_time = time.time()
+                        return cached_projects.copy()
+                except (ImportError, AttributeError, RuntimeError):
+                    # Django может быть еще не инициализирован при импорте модуля
+                    pass
+                except Exception:
+                    pass
+                # Затем проверяем текущий in-memory кэш
                 if self._projects_cache is not None:
                     cache_age = int(time.time() - self._projects_cache_time)
                     # Используем кэш даже если он очень старый (до 10 минут)
@@ -724,7 +801,20 @@ class PowerFactoryManager:
             error_trace = traceback.format_exc()
             _log(f"Ошибка при получении списка проектов PowerFactory: {e}")
             _log(f"Traceback: {error_trace}")
-            # Если есть кэш, используем его
+            # Сначала проверяем Django кэш
+            try:
+                from django.core.cache import cache
+                cache_key = 'powerfactory_available_projects'
+                cached_projects = cache.get(cache_key)
+                if cached_projects is not None:
+                    _log(f"[DEBUG] Используем Django кэш после исключения")
+                    return cached_projects.copy()
+            except (ImportError, AttributeError, RuntimeError):
+                # Django может быть еще не инициализирован при импорте модуля
+                pass
+            except Exception:
+                pass
+            # Если есть in-memory кэш, используем его
             if self._projects_cache is not None:
                 cache_age = int(time.time() - self._projects_cache_time)
                 if cache_age < self._cache_ttl * 2:

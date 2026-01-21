@@ -1,6 +1,12 @@
 from random import shuffle
 from typing import Any, Dict, List, Optional, Union
 import sys
+import time
+
+try:
+    import pythoncom  # type: ignore[import-untyped]
+except ImportError:
+    pythoncom = None
 
 POWERFACTORY_PATH: str = r"C:\Program Files\DIgSILENT\PowerFactory 2021 SP3\Python\3.8"
 PROJECT_NAME: str = "ОДУ Сибири 1.0"
@@ -10,6 +16,11 @@ sys.path.append(POWERFACTORY_PATH)
 # Lazy initialization - don't import powerfactory at module level
 _powerfactory_module = None
 _app = None
+
+# Кэш для объектов PowerFactory (чтобы минимизировать обращения)
+_pf_objects_cache: Dict[str, Any] = {}
+_pf_objects_cache_time: Dict[str, float] = {}
+_cache_ttl = 300  # 5 минут
 
 
 def _log(message: str):
@@ -72,6 +83,10 @@ def _get_powerfactory_object(
     
     for attempt in range(max_retries):
         try:
+            # Увеличиваем задержку между попытками для стабильности
+            if attempt > 0:
+                time.sleep(0.2 * attempt)  # 0.2, 0.4, 0.6 секунд
+            
             pf_objects = app.GetCalcRelevantObjects(pf_class_name)
             for pf_object in pf_objects:
                 try:
@@ -83,9 +98,15 @@ def _get_powerfactory_object(
                         # Если ошибка многопоточности при работе с объектом,
                         # пересоздаем app и пробуем снова
                         if attempt < max_retries - 1:
+                            _log(f"[DEBUG] Ошибка многопоточности при работе с объектом (попытка {attempt + 1}/{max_retries})")
+                            if pythoncom is not None:
+                                try:
+                                    pythoncom.CoUninitialize()
+                                except:
+                                    pass
                             app = powerfactory.GetApplication()
                             if app:
-                                time.sleep(0.1)
+                                time.sleep(0.2 * (attempt + 1))
                                 break  # Выходим из внутреннего цикла, чтобы повторить внешний
                             continue
                     # Для других ошибок - просто пропускаем объект
@@ -100,10 +121,16 @@ def _get_powerfactory_object(
             if "can't be used from other threads" in str(e):
                 if attempt < max_retries - 1:
                     _log(f"[DEBUG] Ошибка многопоточности в _get_powerfactory_object (попытка {attempt + 1}/{max_retries})")
+                    # Пытаемся освободить COM перед пересозданием
+                    if pythoncom is not None:
+                        try:
+                            pythoncom.CoUninitialize()
+                        except:
+                            pass
                     # Пересоздаем app и пробуем снова
                     app = powerfactory.GetApplication()
                     if app:
-                        time.sleep(0.1)
+                        time.sleep(0.2 * (attempt + 1))
                         continue
                     else:
                         raise RuntimeError(
@@ -127,9 +154,14 @@ def _get_powerfactory_object(
             # Для других исключений пробуем повторить
             if attempt < max_retries - 1:
                 _log(f"[DEBUG] Неожиданная ошибка в _get_powerfactory_object (попытка {attempt + 1}/{max_retries}): {e}")
+                if pythoncom is not None:
+                    try:
+                        pythoncom.CoUninitialize()
+                    except:
+                        pass
                 app = powerfactory.GetApplication()
                 if app:
-                    time.sleep(0.1)
+                    time.sleep(0.2 * (attempt + 1))
                     continue
             raise
     
@@ -140,14 +172,44 @@ def _get_powerfactory_object(
 def get_pf_line(app, pf_line_name: str):
     """
     Возвращает ЛЭП в модели PowerFactory по имени.
+    Использует кэширование для минимизации обращений к PowerFactory.
 
     :param app: COM-объект PowerFactory.
     :param pf_line_name: Наименование ЛЭП в модели PowerFactory.
     :return: Объект класса ElmBranch (ЛЭП) из PowerFactory.
     """
-
-    pf_line = _get_powerfactory_object(app, PF_LINE_CLASS, pf_line_name)
-    return pf_line
+    global _pf_objects_cache, _pf_objects_cache_time
+    
+    # Проверяем кэш
+    cache_key = f"line:{pf_line_name}"
+    current_time = time.time()
+    
+    if cache_key in _pf_objects_cache:
+        cache_age = current_time - _pf_objects_cache_time.get(cache_key, 0)
+        if cache_age < _cache_ttl:
+            _log(f"[DEBUG] Используем кэшированный объект ЛЭП '{pf_line_name}' (возраст: {int(cache_age)} сек)")
+            return _pf_objects_cache[cache_key]
+    
+    # Если нет в кэше или кэш устарел, получаем из PowerFactory
+    try:
+        pf_line = _get_powerfactory_object(app, PF_LINE_CLASS, pf_line_name)
+        if pf_line:
+            # Сохраняем в кэш
+            _pf_objects_cache[cache_key] = pf_line
+            _pf_objects_cache_time[cache_key] = current_time
+        return pf_line
+    except RuntimeError as e:
+        if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
+            # При ошибке многопоточности пробуем использовать кэш, даже если он старый
+            if cache_key in _pf_objects_cache:
+                cache_age = current_time - _pf_objects_cache_time.get(cache_key, 0)
+                if cache_age < _cache_ttl * 2:  # Используем кэш до 10 минут при ошибке
+                    _log(f"[WARNING] Ошибка многопоточности, используем кэшированный объект ЛЭП '{pf_line_name}' (возраст: {int(cache_age)} сек)")
+                    return _pf_objects_cache[cache_key]
+            # Если кэша нет, возвращаем None вместо выбрасывания исключения
+            _log(f"[WARNING] Ошибка многопоточности при получении ЛЭП '{pf_line_name}', возвращаем None")
+            return None
+        raise
 
 
 def get_powerfactory_object_by_full_name(app, full_name: str):
@@ -180,13 +242,50 @@ def get_pf_substation(app, pf_substation_name: str):
 
 
 def get_pf_line_data(pf_line):
-    length = round(pf_line.GetAttribute("length"), 2)
-    r1 = round(pf_line.GetAttribute("R1"), 2)
-    x1 = round(pf_line.GetAttribute("X1"), 2)
-    r0 = round(pf_line.GetAttribute("R0"), 2)
-    x0 = round(pf_line.GetAttribute("X0"), 2)
+    """
+    Получает данные ЛЭП из объекта PowerFactory.
+    
+    :param pf_line: Объект ElmBranch из PowerFactory или None
+    :return: Словарь с данными ЛЭП или None
+    """
+    if pf_line is None:
+        return None
+    
+    try:
+        length = round(pf_line.GetAttribute("length"), 2)
+        r1 = round(pf_line.GetAttribute("R1"), 2)
+        x1 = round(pf_line.GetAttribute("X1"), 2)
+        r0 = round(pf_line.GetAttribute("R0"), 2)
+        x0 = round(pf_line.GetAttribute("X0"), 2)
 
-    return {"length": length, "Z1": f"{r1}+j{x1}", "Z0": f"{r0}+j{x0}"}
+        return {"length": length, "Z1": f"{r1}+j{x1}", "Z0": f"{r0}+j{x0}"}
+    except Exception as e:
+        _log(f"[WARNING] Ошибка при получении данных ЛЭП из PowerFactory: {e}")
+        return None
+
+
+def get_line_data_from_model(line):
+    """
+    Получает данные ЛЭП из модели Django Line.
+    Используется как fallback, когда PowerFactory недоступен.
+    
+    :param line: Объект модели Line
+    :return: Словарь с данными ЛЭП или None
+    """
+    if not line:
+        return None
+    
+    try:
+        length = float(line.length) if line.length else 0.0
+        r1 = float(line.r1) if line.r1 else 0.0
+        x1 = float(line.x1) if line.x1 else 0.0
+        r0 = float(line.r0) if line.r0 else 0.0
+        x0 = float(line.x0) if line.x0 else 0.0
+
+        return {"length": round(length, 2), "Z1": f"{round(r1, 2)}+j{round(x1, 2)}", "Z0": f"{round(r0, 2)}+j{round(x0, 2)}"}
+    except Exception as e:
+        _log(f"[WARNING] Ошибка при получении данных ЛЭП из модели: {e}")
+        return None
 
 
 def _validate_branch_object(app, branch_object) -> bool:
