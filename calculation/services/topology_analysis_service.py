@@ -6,6 +6,7 @@ from django.utils import timezone
 from core.models import ProtectionHalfSet, HalfSetTopology
 
 from .powerfactory_locator import get_pf_line, get_pf_substation
+from .fault_calculation_service import FaultCalculationService
 
 
 class TopologyAnalysisService:
@@ -52,13 +53,37 @@ class TopologyAnalysisService:
             pf_manager = PowerFactoryManager()
             app = pf_manager.get_application()
 
-        # Получаем топологию из PowerFactory
-        topology = self._fetch_topology_from_pf(app)
-
-        # Сохраняем в БД
-        self._save_topology_to_db(topology)
-
-        return topology
+        # Получаем топологию из PowerFactory с обработкой ошибок многопоточности
+        try:
+            topology = self._fetch_topology_from_pf(app)
+            # Сохраняем в БД
+            self._save_topology_to_db(topology)
+            return topology
+        except RuntimeError as e:
+            if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
+                FaultCalculationService._log(
+                    f"[WARNING] Ошибка многопоточности при получении топологии для полукомплекта {self.half_set}, "
+                    f"используем данные из БД (если доступны)"
+                )
+                # Пытаемся вернуть данные из БД, даже если они устарели
+                try:
+                    topology_obj = HalfSetTopology.objects.get(
+                        protection_half_set=self.half_set
+                    )
+                    FaultCalculationService._log(
+                        f"[DEBUG] Используем устаревшие данные топологии из БД (возраст: "
+                        f"{(timezone.now() - topology_obj.last_updated).days} дней)"
+                    )
+                    return topology_obj.topology_data
+                except HalfSetTopology.DoesNotExist:
+                    FaultCalculationService._log(
+                        f"[ERROR] Топология для полукомплекта {self.half_set} не найдена в БД, "
+                        f"возвращаем пустой список"
+                    )
+                    return []
+            else:
+                # Другие RuntimeError пробрасываем дальше
+                raise
 
     def _fetch_topology_from_pf(self, app) -> List[Dict[str, str]]:
         """Получает топологию из PowerFactory (старая логика)."""
@@ -67,8 +92,18 @@ class TopologyAnalysisService:
         substation_pf_name = self.half_set.substation.pf_name
 
         # Находим ЛЭП и ПС в модели PowerFactory
+        # get_pf_line и get_pf_substation могут вернуть None при ошибке многопоточности
         pf_line = get_pf_line(app, line_pf_name)
+        if pf_line is None:
+            raise RuntimeError(
+                f"Ошибка многопоточности при получении ЛЭП '{line_pf_name}' из PowerFactory"
+            )
+        
         pf_substation = get_pf_substation(app, substation_pf_name)
+        if pf_substation is None:
+            raise RuntimeError(
+                f"Ошибка многопоточности при получении ПС '{substation_pf_name}' из PowerFactory"
+            )
 
         # Определяем напряжение ЛЭП
         voltage_level = self._get_pf_line_voltage_level(pf_line)

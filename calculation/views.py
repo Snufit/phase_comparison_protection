@@ -92,15 +92,15 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                         calculation_form.fields["ct"].initial = line.ct
                     if line.vt:
                         calculation_form.fields["vt"].initial = line.vt
-                    # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
+                # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
                     elif line.voltage_level:
-                        from core.models import VoltageTransformer
+                    from core.models import VoltageTransformer
 
-                        line_voltage_int = int(float(line.voltage_level))
-                        # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
-                        # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+                    line_voltage_int = int(float(line.voltage_level))
+                    # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                    # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
                         vt_queryset = VoltageTransformer.objects.filter(
-                            primary_voltage=line_voltage_int
+                        primary_voltage=line_voltage_int
                         ).order_by('id')
                         
                         if vt_queryset.exists():
@@ -726,14 +726,14 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 pf_line_data = None
                 
                 try:
-                    pf_line = get_pf_line(app, line.pf_name)
+                pf_line = get_pf_line(app, line.pf_name)
                     if pf_line:
-                        pf_line_data = get_pf_line_data(pf_line)
+                pf_line_data = get_pf_line_data(pf_line)
                         if pf_line_data:
-                            request.session["line_data"] = pf_line_data
-                            # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
+                request.session["line_data"] = pf_line_data
+                # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
                             try:
-                                line.update_voltage_from_pf(app)
+                line.update_voltage_from_pf(app)
                             except RuntimeError as e:
                                 if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
                                     FaultCalculationService._log("[DEBUG] Ошибка многопоточности при обновлении напряжения из PowerFactory, пропускаем")
@@ -804,14 +804,39 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     half_set2_topology = topology_service2.get_half_set_topology(
                         app=None, force_refresh=False
                     )
-                except (ModuleNotFoundError, RuntimeError):
+                except (ModuleNotFoundError, RuntimeError) as e:
                     # Если нет в БД или PowerFactory недоступен, используем переданный app
+                    # Но если это ошибка многопоточности, пробуем еще раз с app
+                    if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
+                        FaultCalculationService._log(
+                            "[DEBUG] Ошибка многопоточности при получении топологии без app, "
+                            "пробуем с app (может быть нестабильно)"
+                        )
+                        try:
                     half_set1_topology = topology_service1.get_half_set_topology(
                         app=app, force_refresh=False
                     )
                     half_set2_topology = topology_service2.get_half_set_topology(
                         app=app, force_refresh=False
                     )
+                        except RuntimeError as e2:
+                            if "can't be used from other threads" in str(e2) or "Ошибка многопоточности" in str(e2):
+                                # Если и с app не получилось, используем данные из БД (даже устаревшие)
+                                FaultCalculationService._log(
+                                    "[WARNING] Ошибка многопоточности при получении топологии с app, "
+                                    "используем данные из БД (если доступны)"
+                                )
+                                half_set1_topology = topology_service1.get_half_set_topology(
+                                    app=None, force_refresh=False
+                                )
+                                half_set2_topology = topology_service2.get_half_set_topology(
+                                    app=None, force_refresh=False
+                                )
+                            else:
+                                raise
+                    else:
+                        # Другие ошибки пробрасываем дальше
+                        raise
 
                 # Освобождаем COM-объект
                 # print(app.GetAttributes())

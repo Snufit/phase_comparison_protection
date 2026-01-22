@@ -552,7 +552,7 @@
                                                 {% for error in calculation_form.ct.errors %}
                                                     <small class="text-danger">{{ error }}</small>
                                                 {% endfor %}
-                                            </div>
+                                </div>
                                         {% endif %}
                                     </div>
                                     
@@ -621,8 +621,8 @@
                                             <input type="number" 
                                                    class="form-control form-control-lg {% if organ.toggleable and not organ.enabled %}bg-light{% endif %}" 
                                                    id="id_{{ factor_key }}"
-                                                   name="{{ factor_key }}"
-                                                   value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
+                                                name="{{ factor_key }}"
+                                                value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
                                                    step="{% if factor_data.step is not None %}{{ factor_data.step|unlocalize }}{% else %}0.01{% endif %}" 
                                                    min="{% if factor_data.min is not None %}{{ factor_data.min|unlocalize }}{% else %}0{% endif %}" 
                                                    max="{% if factor_data.max is not None %}{{ factor_data.max|unlocalize }}{% endif %}"
@@ -637,9 +637,9 @@
                                             {% if organ.toggleable %}
                                                 {% if not organ.enabled %}
                                                     Орган отключен. Коэффициенты не требуются для данного органа.
-                                                {% else %}
+                {% else %}
                                                     Коэффициенты не требуются для данного органа.
-                                                {% endif %}
+                {% endif %}
                                             {% else %}
                                                 Коэффициенты не требуются для данного органа.
                                             {% endif %}

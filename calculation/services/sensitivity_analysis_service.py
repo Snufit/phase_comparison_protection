@@ -39,6 +39,169 @@ class SensitivityAnalysisService:
         """
         FaultCalculationService._log(message)
 
+    def _get_fault_calculations_with_fallback(
+        self,
+        protection_half_set,
+        fault_types: List[str],
+        additional_filters: Optional[Dict] = None,
+    ) -> QuerySet[FaultCalculation]:
+        """
+        Получает FaultCalculation с fallback на предыдущие расчеты, если для текущего расчета нет КЗ.
+        
+        Args:
+            protection_half_set: Полукомплект защиты
+            fault_types: Список типов КЗ
+            additional_filters: Дополнительные фильтры для QuerySet (например, exclude, filter)
+            
+        Returns:
+            QuerySet[FaultCalculation] с КЗ из текущего или предыдущего расчета
+        """
+        # Сначала ищем КЗ для текущего расчета
+        filters = {
+            'calculation_meta': self.calculation_meta,
+            'protection_half_set': protection_half_set,
+            'fault_type__in': fault_types,
+        }
+        if additional_filters:
+            filters.update(additional_filters)
+        
+        fault_calculations = FaultCalculation.objects.filter(**filters)
+        
+        # Если для текущего расчета нет КЗ, пробуем использовать КЗ из предыдущих расчетов
+        if fault_calculations.count() == 0:
+            self._log(
+                f"[WARNING] Не найдено КЗ для текущего расчета (ID={self.calculation_meta.id}). "
+                f"Пробуем использовать КЗ из предыдущих расчетов для той же ЛЭП."
+            )
+            # Находим последний расчет для той же ЛЭП с КЗ
+            previous_calculations = CalculationMeta.objects.filter(
+                line=self.calculation_meta.line
+            ).exclude(
+                id=self.calculation_meta.id
+            ).order_by('-calculation_date')
+            
+            self._log(
+                f"[DEBUG] Ищем КЗ в {previous_calculations.count()} предыдущих расчетах для ЛЭП {self.calculation_meta.line}"
+            )
+            
+            for prev_calc in previous_calculations:
+                # Сначала пробуем найти КЗ для того же полукомплекта
+                prev_filters = {
+                    'calculation_meta': prev_calc,
+                    'protection_half_set': protection_half_set,
+                    'fault_type__in': fault_types,
+                }
+                if additional_filters:
+                    # Для предыдущих расчетов применяем те же дополнительные фильтры
+                    prev_filters.update(additional_filters)
+                
+                prev_faults = FaultCalculation.objects.filter(**prev_filters)
+                
+                # Если не нашли для того же полукомплекта, пробуем найти для любого полукомплекта той же ЛЭП
+                if prev_faults.count() == 0:
+                    self._log(
+                        f"[DEBUG] Не найдено КЗ для полукомплекта {protection_half_set} в расчете ID={prev_calc.id}, "
+                        f"пробуем найти для любого полукомплекта той же ЛЭП"
+                    )
+                    prev_filters_any_halfset = {
+                        'calculation_meta': prev_calc,
+                        'fault_type__in': fault_types,
+                    }
+                    if additional_filters:
+                        prev_filters_any_halfset.update(additional_filters)
+                    
+                    prev_faults = FaultCalculation.objects.filter(**prev_filters_any_halfset)
+                
+                if prev_faults.count() > 0:
+                    self._log(
+                        f"[INFO] Найдено {prev_faults.count()} КЗ из предыдущего расчета "
+                        f"(ID={prev_calc.id}, дата={prev_calc.calculation_date}). "
+                        f"Используем их для анализа чувствительности."
+                    )
+                    fault_calculations = prev_faults
+                    break
+            else:
+                self._log(
+                    f"[WARNING] Не найдено КЗ в предыдущих расчетах для ЛЭП {self.calculation_meta.line}. "
+                    f"Анализ чувствительности не может быть выполнен. "
+                    f"Причина: PowerFactory не смог выполнить расчеты КЗ из-за ошибок многопоточности."
+                )
+        
+        return fault_calculations
+
+    def _get_offset_resistance_from_previous_calculation(
+        self,
+        protection_half_set,
+        rnnp_ust: float,
+        min_3u0: float,
+    ) -> Optional[float]:
+        """
+        Получает коэффициент смещения Z₀_см из предыдущих расчетов или рассчитывает его.
+        
+        Args:
+            protection_half_set: Полукомплект защиты
+            rnnp_ust: Уставка РННП в кВ
+            min_3u0: Минимальное напряжение 3U₀ в кВ (из найденных КЗ)
+            
+        Returns:
+            Значение Z₀_см в Ом или None
+        """
+        # Сначала ищем коэффициент смещения в предыдущих расчетах для той же ЛЭП
+        previous_calculations = CalculationMeta.objects.filter(
+            line=self.calculation_meta.line
+        ).exclude(
+            id=self.calculation_meta.id
+        ).order_by('-calculation_date')
+        
+        # Ищем SettingsCalculation для РННП/3U0_M0 в предыдущих расчетах
+        rnnp_component = Component.objects.filter(
+            setting_designation="РННП/3U0_M0"
+        ).first()
+        
+        if not rnnp_component:
+            return None
+        
+        for prev_calc in previous_calculations:
+            prev_settings = SettingsCalculation.objects.filter(
+                calculation_meta=prev_calc,
+                protection_half_set=protection_half_set,
+                component=rnnp_component,
+            ).first()
+            
+            if prev_settings and prev_settings.calculation_factors:
+                prev_z0_offset = prev_settings.calculation_factors.get("Сопротивление смещения Z₀_см, Ом")
+                if prev_z0_offset and prev_z0_offset > 0:
+                    self._log(
+                        f"[INFO] Найден коэффициент смещения Z₀_см={prev_z0_offset:.3f} Ом "
+                        f"из предыдущего расчета (ID={prev_calc.id})"
+                    )
+                    return float(prev_z0_offset)
+        
+        # Если не нашли в предыдущих расчетах, пробуем рассчитать на основе найденных КЗ
+        # Для расчета нужен минимальный ток 3I0_МИН_СРАБ (уставка РТНП)
+        min_3i0_srab = self._get_min_rtnp_setting_for_analysis(protection_half_set)
+        
+        if min_3i0_srab and min_3i0_srab > 0 and min_3u0 and min_3u0 > 0:
+            # Формула (3.9): |Z₀_см| ≥ (k_ч · 3U₀_РНМ_разр - |3U₀|) / 3I0_МИН_СРАБ
+            k_ch = 1.5
+            numerator = k_ch * rnnp_ust - abs(min_3u0)
+            
+            if numerator > 0:
+                z0_offset = (numerator / min_3i0_srab) * 1000  # кВ/А * 1000 = Ом
+                self._log(
+                    f"[INFO] Рассчитан коэффициент смещения Z₀_см={z0_offset:.3f} Ом "
+                    f"на основе найденных КЗ (3U₀_мин={min_3u0:.3f} кВ, "
+                    f"3I0_МИН_СРАБ={min_3i0_srab:.3f} А, уставка={rnnp_ust:.3f} кВ)"
+                )
+                return round(z0_offset, 3)
+            else:
+                self._log(
+                    f"[WARNING] Не удалось рассчитать коэффициент смещения: "
+                    f"k_ч·3U₀_РНМ={k_ch * rnnp_ust:.3f} кВ ≤ |3U₀|={abs(min_3u0):.3f} кВ"
+                )
+        
+        return None
+
     def _build_sensitivity_handlers(self) -> Dict:
         """
         Строит словарь обработчиков чувствительности на основе карты КЗ.
@@ -132,12 +295,9 @@ class SensitivityAnalysisService:
                 self._log(
                     f"[DEBUG] Требуемое значение из КЗ: {target_fault_value}")
 
-                fault_calculations: QuerySet[
-                    FaultCalculation
-                ] = FaultCalculation.objects.filter(
-                    calculation_meta=self.calculation_meta,
+                fault_calculations = self._get_fault_calculations_with_fallback(
                     protection_half_set=protection_half_set,
-                    fault_type__in=fault_types,
+                    fault_types=fault_types,
                 )
 
                 self._log(f"[DEBUG] Найдено КЗ в БД: {fault_calculations.count()}")
@@ -667,10 +827,9 @@ class SensitivityAnalysisService:
             # Когда рассчитываем чувствительность для полукомплекта 1, нам нужен ток I1
             # на противоположном конце, который был рассчитан для полукомплекта 1
             i1_3_opposite = None
-            all_opposite_faults = FaultCalculation.objects.filter(
-                calculation_meta=self.calculation_meta,
-                protection_half_set=protection_half_set,  # Ищем для ТЕКУЩЕГО полукомплекта
-                fault_type="К(3)",
+            all_opposite_faults = self._get_fault_calculations_with_fallback(
+                protection_half_set=protection_half_set,
+                fault_types=["К(3)"],
             ).exclude(fault_location__startswith="Ответвление:")
             
             # Ищем КЗ с ненулевым I1
@@ -697,10 +856,9 @@ class SensitivityAnalysisService:
             # Ищем КЗ для противоположного полукомплекта на противоположном конце
             # (это будет ток на конце текущего полукомплекта)
             i1_3_current = None
-            all_current_faults = FaultCalculation.objects.filter(
-                calculation_meta=self.calculation_meta,
-                protection_half_set=opposite_half_set,  # Ищем для противоположного полукомплекта
-                fault_type="К(3)",
+            all_current_faults = self._get_fault_calculations_with_fallback(
+                protection_half_set=opposite_half_set,
+                fault_types=["К(3)"],
             ).exclude(fault_location__startswith="Ответвление:")
             
             # Ищем КЗ с ненулевым I1
@@ -732,11 +890,10 @@ class SensitivityAnalysisService:
             r_max_otv = 0.0
 
             # Ищем все КЗ на ответвлениях
-            branch_faults = FaultCalculation.objects.filter(
-                calculation_meta=self.calculation_meta,
+            branch_faults = self._get_fault_calculations_with_fallback(
                 protection_half_set=protection_half_set,
-                fault_type="К(3)",
-                fault_location__startswith="Ответвление:",
+                fault_types=["К(3)"],
+                additional_filters={'fault_location__startswith': "Ответвление:"},
             )
 
             for branch_fault in branch_faults:
@@ -844,11 +1001,10 @@ class SensitivityAnalysisService:
 
             # Ищем все КЗ на землю (К(1)) на ответвлениях
             # Проверяем подрежимы с отключением линии с противоположной стороны
-            branch_faults = FaultCalculation.objects.filter(
-                calculation_meta=self.calculation_meta,
+            branch_faults = self._get_fault_calculations_with_fallback(
                 protection_half_set=protection_half_set,
-                fault_type="К(1)",
-                fault_location__startswith="Ответвление:",
+                fault_types=["К(1)"],
+                additional_filters={'fault_location__startswith': "Ответвление:"},
             )
 
             # Проверяем наличие КЗ на ответвлениях - это более надежная проверка, чем branch_count
@@ -901,7 +1057,72 @@ class SensitivityAnalysisService:
             # Если есть смещение для РННП, учитываем его при расчете чувствительности
             if target_fault_value == "RNM_U0":
                 calculation_factors = settings_calculation.calculation_factors or {}
-                z0_offset = calculation_factors.get("Сопротивление смещения Z₀_см, Ом")
+                z0_offset_raw = calculation_factors.get("Сопротивление смещения Z₀_см, Ом")
+                
+                # Преобразуем в float, если значение есть
+                z0_offset = None
+                if z0_offset_raw is not None:
+                    try:
+                        z0_offset = float(z0_offset_raw)
+                        if z0_offset <= 0:
+                            z0_offset = None
+                            self._log(
+                                f"[DEBUG] Коэффициент смещения в calculation_factors неположительный: {z0_offset_raw}"
+                            )
+                        else:
+                            self._log(
+                                f"[DEBUG] Найден коэффициент смещения в calculation_factors: {z0_offset:.3f} Ом"
+                            )
+                    except (ValueError, TypeError) as e:
+                        z0_offset = None
+                        self._log(
+                            f"[DEBUG] Не удалось преобразовать коэффициент смещения в float: {z0_offset_raw}, ошибка: {e}"
+                        )
+
+                # Если смещения нет в текущем расчете, пробуем найти его в предыдущих расчетах
+                if not z0_offset or z0_offset <= 0:
+                    self._log(
+                        f"[DEBUG] Коэффициент смещения не найден в текущем расчете, ищем в предыдущих..."
+                    )
+                    z0_offset = self._get_offset_resistance_from_previous_calculation(
+                        protection_half_set, rnm_ust, min_value
+                    )
+                    self._log(
+                        f"[DEBUG] Результат поиска коэффициента смещения: z0_offset={z0_offset} "
+                        f"(тип: {type(z0_offset).__name__})"
+                    )
+                    # Сохраняем найденный коэффициент смещения в calculation_factors текущего расчета
+                    # чтобы он отображался в интерфейсе
+                    if z0_offset is not None:
+                        try:
+                            z0_offset_float = float(z0_offset)
+                            if z0_offset_float > 0:
+                                if settings_calculation.calculation_factors is None:
+                                    settings_calculation.calculation_factors = {}
+                                settings_calculation.calculation_factors["Сопротивление смещения Z₀_см, Ом"] = z0_offset_float
+                                settings_calculation.save(update_fields=['calculation_factors'])
+                                # Перезагружаем объект из БД, чтобы убедиться, что значение сохранилось
+                                settings_calculation.refresh_from_db()
+                                # Проверяем, что значение сохранилось
+                                saved_value = settings_calculation.calculation_factors.get("Сопротивление смещения Z₀_см, Ом")
+                                self._log(
+                                    f"[DEBUG] Сохранен коэффициент смещения Z₀_см={z0_offset_float:.3f} Ом "
+                                    f"в calculation_factors (ID={settings_calculation.id}). "
+                                    f"Проверка сохранения: {saved_value} (тип: {type(saved_value).__name__})"
+                                )
+                                z0_offset = z0_offset_float
+                            else:
+                                self._log(
+                                    f"[WARNING] Коэффициент смещения неположительный: {z0_offset_float}"
+                                )
+                        except (ValueError, TypeError) as e:
+                            self._log(
+                                f"[ERROR] Ошибка при сохранении коэффициента смещения: {e}, z0_offset={z0_offset}"
+                            )
+                    else:
+                        self._log(
+                            f"[WARNING] Коэффициент смещения не был найден или равен None"
+                        )
 
                 if z0_offset and z0_offset > 0:
                     # Находим минимальный ток срабатывания 3I0_МИН_СРАБ (уставка РТНП)

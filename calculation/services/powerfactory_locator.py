@@ -215,30 +215,75 @@ def get_pf_line(app, pf_line_name: str):
 def get_powerfactory_object_by_full_name(app, full_name: str):
     """
     Возвращает объект модели PowerFactory по полному имени.
+    При ошибке многопоточности возвращает None вместо исключения.
 
     :param app: COM-объект PowerFactory.
     :param full_name: Полное имя объекта в модели PowerFactory.
-    :return: Объект модели PowerFactory.
+    :return: Объект модели PowerFactory или None при ошибке многопоточности.
     """
-
-    study_case = app.GetActiveStudyCase()
-    obj = study_case.SearchObject(full_name)
-    return obj
+    if app is None:
+        _log(f"[WARNING] app is None при получении объекта '{full_name}', возвращаем None")
+        return None
+    
+    try:
+        study_case = app.GetActiveStudyCase()
+        if study_case is None:
+            _log(f"[WARNING] Не удалось получить активный StudyCase для объекта '{full_name}', возвращаем None")
+            return None
+        obj = study_case.SearchObject(full_name)
+        return obj
+    except RuntimeError as e:
+        if "can't be used from other threads" in str(e):
+            _log(f"[WARNING] Ошибка многопоточности при получении объекта '{full_name}' по полному имени, возвращаем None")
+            return None
+        raise
+    except Exception as e:
+        _log(f"[WARNING] Ошибка при получении объекта '{full_name}' по полному имени: {e}, возвращаем None")
+        return None
 
 
 def get_pf_substation(app, pf_substation_name: str):
     """
     Возвращает подстанцию в модели PowerFactory по имени.
+    Использует кэширование для минимизации обращений к PowerFactory.
+    При ошибке многопоточности возвращает None вместо исключения.
 
     :param app: COM-объект PowerFactory.
     :param pf_substation_name: Наименование подстанции в модели PowerFactory.
-    :return: Объект класса ElmSubstat (Подстанция) из PowerFactory.
+    :return: Объект класса ElmSubstat (Подстанция) из PowerFactory или None при ошибке многопоточности.
     """
-
-    pf_substation = _get_powerfactory_object(
-        app, PF_SUBSTATION_CLASS, pf_substation_name
-    )
-    return pf_substation
+    global _pf_objects_cache, _pf_objects_cache_time
+    
+    # Проверяем кэш
+    cache_key = f"substation:{pf_substation_name}"
+    current_time = time.time()
+    
+    if cache_key in _pf_objects_cache:
+        cache_age = current_time - _pf_objects_cache_time.get(cache_key, 0)
+        if cache_age < _cache_ttl:
+            _log(f"[DEBUG] Используем кэшированный объект ПС '{pf_substation_name}' (возраст: {int(cache_age)} сек)")
+            return _pf_objects_cache[cache_key]
+    
+    # Если нет в кэше или кэш устарел, получаем из PowerFactory
+    try:
+        pf_substation = _get_powerfactory_object(app, PF_SUBSTATION_CLASS, pf_substation_name)
+        if pf_substation:
+            # Сохраняем в кэш
+            _pf_objects_cache[cache_key] = pf_substation
+            _pf_objects_cache_time[cache_key] = current_time
+        return pf_substation
+    except RuntimeError as e:
+        if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
+            # При ошибке многопоточности пробуем использовать кэш, даже если он старый
+            if cache_key in _pf_objects_cache:
+                cache_age = current_time - _pf_objects_cache_time.get(cache_key, 0)
+                if cache_age < _cache_ttl * 2:  # Используем кэш до 10 минут при ошибке
+                    _log(f"[WARNING] Ошибка многопоточности, используем кэшированный объект ПС '{pf_substation_name}' (возраст: {int(cache_age)} сек)")
+                    return _pf_objects_cache[cache_key]
+            # Если кэша нет, возвращаем None вместо выбрасывания исключения
+            _log(f"[WARNING] Ошибка многопоточности при получении ПС '{pf_substation_name}', возвращаем None")
+            return None
+        raise
 
 
 def get_pf_line_data(pf_line):

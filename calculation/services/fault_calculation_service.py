@@ -106,10 +106,29 @@ class FaultCalculationService:
 
         # Находим ЛЭП и ПС в модели PowerFactory
         pf_line = get_pf_line(app, line_pf_name)
+        if pf_line is None:
+            self._log(
+                f"[ERROR] Ошибка многопоточности при получении ЛЭП '{line_pf_name}' из PowerFactory. "
+                f"Расчет КЗ для полукомплекта {protection_half_set} пропущен."
+            )
+            return
+        
         pf_substation = get_pf_substation(app, substation_pf_name)
+        if pf_substation is None:
+            self._log(
+                f"[ERROR] Ошибка многопоточности при получении ПС '{substation_pf_name}' из PowerFactory. "
+                f"Расчет КЗ для полукомплекта {protection_half_set} пропущен."
+            )
+            return
 
         # Определяем узел КЗ (противоположный конец)
         fault_terminal = self._get_fault_terminal(pf_line, pf_substation)
+        if fault_terminal is None:
+            self._log(
+                f"[ERROR] Не удалось определить терминал КЗ для ЛЭП '{line_pf_name}' и ПС '{substation_pf_name}'. "
+                f"Расчет КЗ для полукомплекта {protection_half_set} пропущен."
+            )
+            return
         fault_terminal_name = fault_terminal.GetAttribute("loc_name")
 
         # Получаем необходимые типы КЗ для противоположного конца из карты КЗ
@@ -154,8 +173,13 @@ class FaultCalculationService:
                 submode_element = get_powerfactory_object_by_full_name(
                     app, full_name)
 
-                # Записываем в список объектов
-                submode_elements.append(submode_element)
+                # Записываем в список объектов только если объект найден
+                if submode_element is not None:
+                    submode_elements.append(submode_element)
+                else:
+                    self._log(
+                        f"[WARNING] Не удалось получить объект '{full_name}' из PowerFactory (ошибка многопоточности), пропускаем его в подрежиме '{submode_name}'"
+                    )
 
             # Отключаем объекты подрежима
             self._disconnect_submode_elements(submode_elements, True)
@@ -283,8 +307,13 @@ class FaultCalculationService:
                 # Восстанавливаем объект по полному имени
                 submode_element = get_powerfactory_object_by_full_name(
                     app, full_name)
-                # Записываем в список объектов
-                submode_elements.append(submode_element)
+                # Записываем в список объектов только если объект найден
+                if submode_element is not None:
+                    submode_elements.append(submode_element)
+                else:
+                    self._log(
+                        f"[WARNING] Не удалось получить объект '{full_name}' из PowerFactory (ошибка многопоточности), пропускаем его в подрежиме '{submode_name}'"
+                    )
 
             # Отключаем объекты подрежима
             self._disconnect_submode_elements(submode_elements, True)
@@ -464,15 +493,39 @@ class FaultCalculationService:
 
     @staticmethod
     def _get_fault_terminal(pf_line, pf_substation):
-        # Определяем узлы подключения защищаемой ЛЭП
-        line_terminals = pf_line.GetConnectedElements()
-        for terminal in line_terminals:
-            # Определяем подстанцию, которой принадлежит узел
-            substation = terminal.GetParent()
+        """
+        Определяет терминал КЗ на противоположном конце линии.
+        
+        Args:
+            pf_line: Объект ЛЭП из PowerFactory
+            pf_substation: Объект подстанции из PowerFactory
+            
+        Returns:
+            Терминал противоположной подстанции или None, если не найден
+        """
+        if pf_line is None or pf_substation is None:
+            return None
+        
+        try:
+            # Определяем узлы подключения защищаемой ЛЭП
+            line_terminals = pf_line.GetConnectedElements()
+            if not line_terminals:
+                return None
+            
+            for terminal in line_terminals:
+                # Определяем подстанцию, которой принадлежит узел
+                substation = terminal.GetParent()
 
-            # Возвращаем терминал противоположной подстанции
-            if substation != pf_substation:
-                return terminal
+                # Возвращаем терминал противоположной подстанции
+                if substation != pf_substation:
+                    return terminal
+        except Exception as e:
+            FaultCalculationService._log(
+                f"[ERROR] Ошибка при определении терминала КЗ: {e}"
+            )
+            return None
+        
+        return None  # Если не нашли противоположный терминал
 
     @staticmethod
     def _get_branch_terminal(pf_line, pf_branch_substation, app=None):
@@ -746,9 +799,29 @@ class FaultCalculationService:
 
     @staticmethod
     def _disconnect_submode_elements(submode_elements, disconnect: bool) -> None:
+        """
+        Отключает или включает элементы подрежима.
+        Пропускает None значения (объекты, которые не удалось получить из PowerFactory).
+        
+        Args:
+            submode_elements: Список объектов PowerFactory (могут содержать None)
+            disconnect: True для отключения, False для включения
+        """
         if disconnect:
             for element in submode_elements:
-                element.SwitchOff()
+                if element is not None:
+                    try:
+                        element.SwitchOff()
+                    except Exception as e:
+                        FaultCalculationService._log(
+                            f"[WARNING] Ошибка при отключении элемента подрежима: {e}"
+                        )
         else:
             for element in submode_elements:
-                element.SwitchOn()
+                if element is not None:
+                    try:
+                        element.SwitchOn()
+                    except Exception as e:
+                        FaultCalculationService._log(
+                            f"[WARNING] Ошибка при включении элемента подрежима: {e}"
+                        )
