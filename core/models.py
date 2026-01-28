@@ -276,7 +276,7 @@ class Line(models.Model):
     """
 
     dispatch_name = models.CharField(
-        verbose_name="Диспетчерское наименование", max_length=100
+        verbose_name="Диспетчерское наименование", max_length=300
     )
     pf_name = models.CharField(
         verbose_name="Наименование в PowerFactory",
@@ -781,6 +781,9 @@ class ProtectionDevice(models.Model):
         """
         Возвращает методику расчета в зависимости от напряжения ЛЭП.
         Ищет методику по напряжению среди всех доступных методик.
+        
+        Если у устройства уже установлена методика (self.methodology), 
+        она имеет приоритет и возвращается в первую очередь.
 
         Args:
             voltage_level: Напряжение ЛЭП в кВ (Decimal или float)
@@ -788,8 +791,12 @@ class ProtectionDevice(models.Model):
         Returns:
             MethodologyDocument или None
         """
-        if voltage_level is None:
+        # Если у устройства уже установлена методика, возвращаем её
+        if self.methodology:
             return self.methodology
+        
+        if voltage_level is None:
+            return None
 
         # Преобразуем в float для сравнения
         voltage = float(voltage_level)
