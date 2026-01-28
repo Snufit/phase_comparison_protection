@@ -1,0 +1,144 @@
+@startuml Use Case Diagram - Phase Comparison Protection System
+
+!define RECTANGLE class
+
+left to right direction
+
+' Акторы
+actor "Технолог СРЗА" as Tech
+actor "Администратор" as Admin
+
+' Система
+rectangle "Веб-приложение\nрасчета параметров\nнастройки ДФЗ" as System {
+
+    ' Группа: Аутентификация
+    package "Аутентификация и авторизация" {
+        usecase "Авторизация" as UC_Auth
+    }
+
+    ' Группа: Работа с проектом
+    package "Работа с проектом PowerFactory" {
+        usecase "Выбор проекта PowerFactory" as UC_SelectProject
+        usecase "Загрузка расчетной модели ЭЭС" as UC_SyncProject
+    }
+
+    ' Группа: Работа с ЛЭП
+    package "Работа с защищаемой ЛЭП" {
+        usecase "Выбор защищаемой ЛЭП" as UC_SelectLine
+        usecase "Фильтрация ЛЭП\nпо типу и напряжению" as UC_FilterLines
+        usecase "Просмотр информации\nо выбранной ЛЭП" as UC_ViewLineInfo
+        usecase "Просмотр списка ЛЭП" as UC_ViewLinesList
+    }
+
+    ' Группа: Настройка расчета
+    package "Настройка параметров расчета" {
+        usecase "Настройка коэффициентов\nрасчета" as UC_ConfigureFactors
+        usecase "Выбор органов ДФЗ" as UC_SelectOrgans
+        usecase "Генерация подрежимов" as UC_GenerateSubmodes
+    }
+
+    ' Группа: Выполнение расчетов
+    package "Выполнение расчетов" {
+        usecase "Расчет параметров\nнастройки ДФЗ" as UC_CalculateSettings
+        usecase "Выполнение анализа\nчувствительности" as UC_SensitivityAnalysis
+    }
+
+    ' Группа: Просмотр результатов
+    package "Просмотр результатов" {
+        usecase "Просмотр результатов\nрасчета уставок" as UC_ViewResults
+        usecase "Просмотр результатов\nанализа чувствительности" as UC_ViewSensitivity
+        usecase "Просмотр графика\nчувствительности" as UC_ViewChart
+        usecase "Просмотр списка\nрасчетов" as UC_ViewCalculationsList
+    }
+
+    ' Группа: Экспорт данных
+    package "Экспорт данных" {
+        usecase "Экспорт результатов\nрасчета (Excel)" as UC_ExportResults
+        usecase "Экспорт результатов\nанализа чувствительности (Excel)" as UC_ExportSensitivity
+    }
+
+    ' Группа: Управление методиками
+    package "Управление методическими документами" {
+        usecase "Добавление методического\nдокумента" as UC_AddMethodology
+        usecase "Просмотр методического\nдокумента" as UC_ViewMethodology
+        usecase "Удаление методического\nдокумента" as UC_DeleteMethodology
+        usecase "Управление методиками" as UC_ManageMethodologies
+    }
+
+    ' Группа: Управление данными
+    package "Управление данными БД" {
+        usecase "Просмотр объектов БД" as UC_ViewDBObjects
+        usecase "Добавление объекта в БД" as UC_AddDBObject
+        usecase "Изменение объекта в БД" as UC_EditDBObject
+        usecase "Удаление объекта из БД" as UC_DeleteDBObject
+    }
+
+    ' Группа: Управление пользователями
+    package "Управление пользователями" {
+        usecase "Просмотр списка\nпользователей" as UC_ViewUsers
+        usecase "Добавление пользователя" as UC_AddUser
+        usecase "Изменение данных\nпользователя" as UC_EditUser
+        usecase "Удаление пользователя" as UC_DeleteUser
+        usecase "Назначение прав\nпользователю" as UC_AssignPermissions
+    }
+}
+
+' Связи Технолога СРЗА
+Tech --> UC_Auth
+Tech --> UC_SelectProject
+Tech --> UC_SyncProject
+Tech --> UC_SelectLine
+Tech --> UC_FilterLines
+Tech --> UC_ViewLineInfo
+Tech --> UC_ViewLinesList
+Tech --> UC_ConfigureFactors
+Tech --> UC_SelectOrgans
+Tech --> UC_GenerateSubmodes
+Tech --> UC_CalculateSettings
+Tech --> UC_SensitivityAnalysis
+Tech --> UC_ViewResults
+Tech --> UC_ViewSensitivity
+Tech --> UC_ViewChart
+Tech --> UC_ViewCalculationsList
+Tech --> UC_ExportResults
+Tech --> UC_ExportSensitivity
+Tech --> UC_AddMethodology
+Tech --> UC_ViewMethodology
+Tech --> UC_DeleteMethodology
+Tech --> UC_ManageMethodologies
+Tech --> UC_ViewDBObjects
+
+' Связи Администратора
+Admin --> UC_Auth
+Admin --> UC_ViewDBObjects
+Admin --> UC_AddDBObject
+Admin --> UC_EditDBObject
+Admin --> UC_DeleteDBObject
+Admin --> UC_ManageMethodologies
+Admin --> UC_ViewUsers
+Admin --> UC_AddUser
+Admin --> UC_EditUser
+Admin --> UC_DeleteUser
+Admin --> UC_AssignPermissions
+
+' Зависимости между вариантами использования
+UC_SelectProject ..> UC_SyncProject : <<include>>
+UC_SelectLine ..> UC_FilterLines : <<include>>
+UC_SelectLine ..> UC_ViewLineInfo : <<include>>
+UC_ConfigureFactors ..> UC_SelectOrgans : <<include>>
+UC_CalculateSettings ..> UC_GenerateSubmodes : <<extend>>
+UC_SensitivityAnalysis ..> UC_CalculateSettings : <<extend>>
+UC_ViewResults ..> UC_CalculateSettings : <<extend>>
+UC_ViewSensitivity ..> UC_SensitivityAnalysis : <<extend>>
+UC_ViewChart ..> UC_SensitivityAnalysis : <<extend>>
+UC_ExportResults ..> UC_ViewResults : <<extend>>
+UC_ExportSensitivity ..> UC_ViewSensitivity : <<extend>>
+UC_EditUser ..> UC_ViewUsers : <<include>>
+UC_DeleteUser ..> UC_ViewUsers : <<include>>
+UC_AssignPermissions ..> UC_ViewUsers : <<include>>
+
+' Внешние системы
+rectangle "PowerFactory" as PF
+System --> PF : использует для\nрасчетов КЗ
+
+@enduml
