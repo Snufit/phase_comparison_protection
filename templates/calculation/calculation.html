@@ -2,6 +2,224 @@
 {% load l10n %}
 {% block title %}Расчет{% endblock title %}
 {% block content %}
+<style>
+    .line-card {
+        transition: all 0.2s ease;
+        position: relative;
+        background-color: #ffffff;
+        border: 1px solid #e9ecef;
+        box-shadow: none;
+        height: 100%; /* Карточка занимает всю высоту колонки */
+        display: flex;
+        flex-direction: column;
+    }
+    .line-card .card-body {
+        padding: 0.5rem 0.75rem !important;
+    }
+    .line-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+        border-color: #adb5bd !important;
+        background-color: #f8f9fa;
+    }
+    /* Выбранная карточка - сдержанное и элегантное выделение */
+    .line-card.border-primary {
+        background: linear-gradient(to right, #f0f7ff 0%, #ffffff 100%) !important;
+        border-color: #0d6efd !important;
+        border-width: 2px !important;
+        box-shadow: 0 2px 8px rgba(13, 110, 253, 0.15) !important;
+    }
+    .line-card.border-primary::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 4px;
+        background: #0d6efd;
+        border-radius: 4px 0 0 4px;
+    }
+    .line-card.border-primary::after {
+        content: '✓';
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        color: #0d6efd;
+        font-size: 16px;
+        font-weight: 700;
+        z-index: 11;
+    }
+    .line-card.border-primary .line-number {
+        color: #0d6efd;
+        font-weight: 700;
+    }
+    /* Цветовая индикация по напряжению - левая граница (только для невыбранных) */
+    .line-card:not(.border-primary)[data-voltage="110"] {
+        border-left: 3px solid rgba(13, 110, 253, 0.6) !important;
+    }
+    .line-card:not(.border-primary)[data-voltage="220"] {
+        border-left: 3px solid rgba(255, 193, 7, 0.5) !important;
+    }
+    .line-card:not(.border-primary)[data-voltage="500"] {
+        border-left: 3px solid rgba(220, 53, 69, 0.6) !important;
+    }
+    /* Для выбранной карточки левая граница напряжения скрыта, показывается только синяя */
+    .line-card.border-primary[data-voltage] {
+        border-left: 3px solid #0d6efd !important;
+    }
+    .line-voltage-badge {
+        display: inline-block;
+        padding: 0.12rem 0.4rem;
+        border-radius: 4px;
+        font-weight: 500;
+        font-size: 0.65rem;
+        line-height: 1.3;
+    }
+    .line-type-text {
+        font-size: 0.68rem;
+        color: #6c757d;
+        font-weight: 400;
+    }
+    .line-number {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #212529;
+        letter-spacing: 0.01em;
+        line-height: 1.4;
+        word-break: break-word;
+        display: -webkit-box;
+        -webkit-line-clamp: 2; /* Максимум 2 строки */
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-height: 2.8em; /* Примерно 2 строки с учетом line-height */
+    }
+    .line-card .card-body {
+        padding: 0.6rem 0.75rem !important;
+        min-height: 80px; /* Минимальная высота */
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        flex-grow: 1; /* Занимает доступное пространство */
+    }
+    /* Выравнивание колонок в сетке */
+    #lines_list_container .row {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    #lines_list_container .row > [class*="col-"] {
+        display: flex;
+        flex-direction: column;
+    }
+    .line-name-wrapper {
+        flex-shrink: 0; /* Не сжимается */
+    }
+    .line-voltage-badge.voltage-110 {
+        background-color: #e7f3ff;
+        color: #0a58ca;
+        border: 1px solid rgba(13, 110, 253, 0.2);
+    }
+    .line-voltage-badge.voltage-220 {
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid rgba(255, 193, 7, 0.3);
+    }
+    .line-voltage-badge.voltage-500 {
+        background-color: #f8d7da;
+        color: #b02a37;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+    /* Стили для badges активных фильтров */
+    #active_filters_badges .badge {
+        font-size: 0.875rem;
+        padding: 0.375rem 0.75rem;
+    }
+    #active_filters_badges .badge i.bi-x {
+        font-size: 0.75rem;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    }
+    #active_filters_badges .badge:hover i.bi-x {
+        opacity: 1;
+    }
+    #active_filters_badges .badge:hover {
+        background-color: #0b5ed7 !important;
+    }
+    /* Стили для прокручиваемого контейнера списка ЛЭП */
+    #lines_list_wrapper {
+        scrollbar-width: thin;
+        scrollbar-color: #0d6efd #f8f9fa;
+    }
+    #lines_list_wrapper::-webkit-scrollbar {
+        width: 8px;
+    }
+    #lines_list_wrapper::-webkit-scrollbar-track {
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    #lines_list_wrapper::-webkit-scrollbar-thumb {
+        background: #0d6efd;
+        border-radius: 4px;
+    }
+    #lines_list_wrapper::-webkit-scrollbar-thumb:hover {
+        background: #0b5ed7;
+    }
+    /* Модальное окно управления методиками - шире */
+    #modalMethodologies .modal-dialog {
+        max-width: 90%;
+    }
+    @media (min-width: 1200px) {
+        #modalMethodologies .modal-dialog {
+            max-width: 1100px;
+        }
+    }
+    /* Стили для кнопок управления методиками - одинаковый размер и выравнивание */
+    .btn-group {
+        display: flex;
+        align-items: center;
+    }
+    /* Стили для иконок-кнопок методик */
+    .btn-group .set-methodology-btn,
+    .btn-group .delete-methodology-btn {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .btn-group .set-methodology-btn i,
+    .btn-group .delete-methodology-btn i {
+        font-size: 1.1rem;
+        margin: 0;
+    }
+    
+    /* Кастомные стили для tooltips коэффициентов */
+    .tooltip {
+        font-size: 0.875rem;
+    }
+    .tooltip .tooltip-inner {
+        background-color: #212529;
+        color: #ffffff;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        max-width: 300px;
+        text-align: left;
+    }
+    .tooltip .tooltip-arrow {
+        width: 0.5rem;
+        height: 0.5rem;
+    }
+    .tooltip .tooltip-arrow::before {
+        border-top-color: #212529;
+    }
+    /* Стили для HTML содержимого в tooltip */
+    .tooltip .tooltip-inner strong {
+        color: #ffc107;
+        font-weight: 600;
+    }
+</style>
 
 <div class="container mt-3">
 
@@ -19,66 +237,676 @@
 
     <form method="post">
         {% csrf_token %}
+        
+        <!-- Карточка выбора ЛЭП -->
+        <div class="card mb-3">
+            <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">
+                    Выбор защищаемой ЛЭП
+                </h6>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="toggle_filters_btn" title="Показать/скрыть фильтры">
+                    <i class="bi bi-funnel"></i> Фильтры
+                </button>
+            </div>
+            <div class="card-body">
+                <!-- Блок фильтров (скрыт по умолчанию) -->
+                <div id="filters_container" class="mb-3" style="display: none;">
         <div class="row mb-3">
             <div class="col-md-6">
-                {{ line_form.line_type_filter.label_tag }} <!-- Метка "Тип ЛЭП" -->
-                {{ line_form.line_type_filter }} <!-- Выпадающий список -->
+                            {{ line_form.voltage_filter.label_tag }}
+                            {{ line_form.voltage_filter }}
             </div>
             <div class="col-md-6">
-                {{ line_form.voltage_filter.label_tag }} <!-- Метка "Напряжение, кВ" -->
-                {{ line_form.voltage_filter }} <!-- Выпадающий список -->
+                            {{ line_form.line_type_filter.label_tag }}
+                            {{ line_form.line_type_filter }}
             </div>
         </div>
+                    
+                    <!-- Блок активных фильтров -->
+                    <div id="active_filters_container" class="mb-2" style="display: none;">
+                        <label class="form-label small text-muted mb-1">
+                            <i class="bi bi-funnel-fill"></i> Активные фильтры:
+                        </label>
+                        <div id="active_filters_badges" class="d-flex flex-wrap gap-2">
+                            <!-- Badges будут добавлены динамически -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Поле поиска по названию (видимо всегда) -->
         <div class="mb-3">
-            {{ line_form.line.label_tag }}
-            {{ line_form.line }} <!-- Список ЛЭП (будет обновляться) -->
+                    <label for="line_search_input" class="form-label">
+                        Поиск по названию ЛЭП
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" 
+                               class="form-control" 
+                               id="line_search_input" 
+                               placeholder="Введите название ЛЭП для поиска..."
+                               autocomplete="off">
+                        <button class="btn btn-outline-secondary" type="button" id="clear_search_btn" style="display: none;">
+                            <i class="bi bi-x"></i>
+                        </button>
+        </div>
+            </div>
+                
+                <!-- Разделитель перед основным списком -->
+                <div id="main_list_separator" class="mb-3" style="display: none;">
+                    <div class="d-flex align-items-center">
+                        <label class="form-label small text-muted mb-0 me-2">
+                            <i class="bi bi-list-ul"></i> <strong>Найдено: <span id="main_list_count">0</span> ЛЭП</strong>
+                        </label>
+                        <hr class="flex-grow-1 my-0" style="border-color: #dee2e6;">
+                    </div>
+                </div>
+                
+                <!-- Скрытое поле для формы -->
+                {{ line_form.line }}
+                
+                <!-- Визуальный список ЛЭП в виде карточек с прокруткой -->
+                <div id="lines_list_wrapper" class="border rounded p-3" style="max-height: 350px; overflow-y: auto; background-color: #ffffff; min-height: 150px; border-color: #e9ecef;">
+                    <div id="lines_list_container">
+                        <!-- Содержимое будет загружено динамически -->
+                    </div>
+                </div>
+                
+            </div>
         </div>
         <script>
             $(document).ready(function () {
-                // Инициализация Select2 для поля выбора ЛЭП
+                // Инициализация Select2 для скрытого поля выбора ЛЭП
                 $('#id_line').select2({
                     placeholder: 'Выберите...',
                     width: '100%',
-                    allowClear: true,
+                    allowClear: false,
                 });
+                // Скрываем стандартный Select2, так как используем визуальный список
+                $('#id_line').next('.select2-container').hide();
 
                 // Инициализация Select2 для фильтра напряжения
-                // Очищаем значение перед инициализацией, чтобы не было автоматического выбора
-                $('#id_voltage_filter').val(null).trigger('change');
+                // Удаляем selected атрибут со всех option перед инициализацией
+                $('#id_voltage_filter option').prop('selected', false);
+                // Явно устанавливаем пустое значение
+                $('#id_voltage_filter').val(null);
                 $('#id_voltage_filter').select2({
                     placeholder: 'Все напряжения',
                     width: '100%',
                     allowClear: true,
-                    minimumResultsForSearch: Infinity  // Отключаем поиск для небольшого списка
+                    minimumResultsForSearch: Infinity
                 });
                 // Убеждаемся, что значение пустое после инициализации
-                $('#id_voltage_filter').val(null).trigger('change');
+                $('#id_voltage_filter').val(null).trigger('change.select2');
 
                 // Инициализация Select2 для фильтра типа ЛЭП
+                // Удаляем selected атрибут со всех option перед инициализацией
+                $('#id_line_type_filter option').prop('selected', false);
+                // Явно устанавливаем пустое значение
+                $('#id_line_type_filter').val(null);
                 $('#id_line_type_filter').select2({
                     placeholder: 'Все типы',
                     width: '100%',
                     allowClear: true,
                     minimumResultsForSearch: Infinity
                 });
+                // Убеждаемся, что значение пустое после инициализации
+                $('#id_line_type_filter').val(null).trigger('change.select2');
+
+                // Переменные для управления отображением списка
+                let allLinesData = []; // Все загруженные ЛЭП
+                let searchQuery = ''; // Текущий поисковый запрос
+                
+                // Функция для получения ключа проекта
+                function getProjectKey() {
+                    const projectSelect = $('#id_project_name, #project_name, select[name="project_name"]');
+                    if (projectSelect.length > 0 && projectSelect.val()) {
+                        return 'project_' + projectSelect.val();
+                    }
+                    return 'default';
+                }
+                
+                // Функция для сохранения фильтров в localStorage
+                function saveFiltersToStorage() {
+                    const lineTypeId = $('#id_line_type_filter').val();
+                    const voltage = $('#id_voltage_filter').val();
+                    const projectKey = getProjectKey();
+                    
+                    // Сохраняем только если значение не пустое
+                    if (lineTypeId && lineTypeId !== '' && lineTypeId !== null) {
+                        localStorage.setItem('line_type_filter_' + projectKey, lineTypeId);
+                    } else {
+                        // Удаляем из localStorage, если фильтр сброшен
+                        localStorage.removeItem('line_type_filter_' + projectKey);
+                    }
+                    
+                    if (voltage && voltage !== '' && voltage !== null) {
+                        localStorage.setItem('voltage_filter_' + projectKey, voltage);
+                    } else {
+                        // Удаляем из localStorage, если фильтр сброшен
+                        localStorage.removeItem('voltage_filter_' + projectKey);
+                    }
+                }
+                
+                // Функция для восстановления фильтров из localStorage
+                function restoreFiltersFromStorage() {
+                    const projectKey = getProjectKey();
+                    const savedLineType = localStorage.getItem('line_type_filter_' + projectKey);
+                    const savedVoltage = localStorage.getItem('voltage_filter_' + projectKey);
+
+                    // Восстанавливаем только если значение не пустое и не null
+                    if (savedLineType && savedLineType !== '' && savedLineType !== 'null') {
+                        $('#id_line_type_filter').val(savedLineType).trigger('change');
+                    } else {
+                        // Убеждаемся, что значение пустое
+                        $('#id_line_type_filter').val(null).trigger('change.select2');
+                    }
+                    
+                    if (savedVoltage && savedVoltage !== '' && savedVoltage !== 'null') {
+                        $('#id_voltage_filter').val(savedVoltage).trigger('change');
+                    } else {
+                        // Убеждаемся, что значение пустое
+                        $('#id_voltage_filter').val(null).trigger('change.select2');
+                    }
+                }
+                
+                // Функция для обновления отображения активных фильтров
+                function updateActiveFilters(activeFilters) {
+                    const container = $('#active_filters_container');
+                    const badgesContainer = $('#active_filters_badges');
+                    
+                    if (activeFilters && activeFilters.length > 0) {
+                        badgesContainer.empty();
+                        activeFilters.forEach(function(filter) {
+                            const badge = $(`
+                                <span class="badge bg-primary d-inline-flex align-items-center gap-1" style="cursor: pointer;">
+                                    ${filter.label}
+                                    <i class="bi bi-x" data-filter-type="${filter.type}" data-filter-value="${filter.value}"></i>
+                                </span>
+                            `);
+                            
+                            // Обработчик клика на крестик для удаления фильтра
+                            badge.find('i.bi-x').on('click', function(e) {
+                                e.stopPropagation();
+                                const filterType = $(this).data('filter-type');
+                                if (filterType === 'voltage') {
+                                    $('#id_voltage_filter').val(null).trigger('change');
+                                } else if (filterType === 'line_type') {
+                                    $('#id_line_type_filter').val(null).trigger('change');
+                                }
+                            });
+                            
+                            badgesContainer.append(badge);
+                        });
+                        container.show();
+                    } else {
+                        container.hide();
+                    }
+                }
+                
+                // Функция для фильтрации ЛЭП по поисковому запросу
+                function filterLinesBySearch(lines, query) {
+                    if (!query || query.trim() === '') {
+                        return lines;
+                    }
+                    const lowerQuery = query.toLowerCase().trim();
+                    return lines.filter(function(line) {
+                        return line.name.toLowerCase().includes(lowerQuery);
+                    });
+                }
+                
+                // Функция для обновления информации о ЛЭП на странице
+                function updateLineInfo(lineData) {
+                    if (!lineData) return;
+                    
+                    const $lineInfoBody = $('#line_info_body');
+                    const lineId = lineData.id;
+                    
+                    // Проверяем, существует ли контейнер с информацией о ЛЭП
+                    // Если нет (показывается "ЛЭП не выбрана"), создаем его полностью
+                    if (!$('#line_dispatch_name').length) {
+                        // Формируем сопротивления
+                        let r1x1 = '';
+                        if (lineData.r1 && lineData.x1) {
+                            const r1 = parseFloat(lineData.r1).toFixed(2);
+                            const x1 = parseFloat(lineData.x1).toFixed(2);
+                            r1x1 = r1 + '+j' + x1;
+                        }
+                        
+                        let r0x0 = '';
+                        if (lineData.r0 && lineData.x0) {
+                            const r0 = parseFloat(lineData.r0).toFixed(2);
+                            const x0 = parseFloat(lineData.x0).toFixed(2);
+                            r0x0 = r0 + '+j' + x0;
+                        }
+                        
+                        // Формируем подстанции ответвлений
+                        let branchSubstationsHtml = '';
+                        if (lineData.branch_substations && lineData.branch_substations.length > 0) {
+                            const label = lineData.branch_substations.length === 1 ? 'Отпаечная ПС:' : 'Отпаечные ПС:';
+                            branchSubstationsHtml = '<p class="mb-1"><strong>' + label + '</strong></p>';
+                            if (lineData.branch_substations.length > 1) {
+                                branchSubstationsHtml += '<ul class="mb-0 ps-3" style="list-style-type: disc;">';
+                                lineData.branch_substations.forEach(function(substation) {
+                                    branchSubstationsHtml += '<li class="mb-1">' + substation + '</li>';
+                                });
+                                branchSubstationsHtml += '</ul>';
+                            } else {
+                                branchSubstationsHtml += '<p class="mb-0 ps-3">' + lineData.branch_substations[0] + '</p>';
+                            }
+                        }
+                        
+                        // Создаем полную структуру карточки
+                        const fullHtml = `
+                            <p class="d-flex align-items-center gap-2 flex-wrap">
+                                <strong>Диспетчерское наименование: </strong>
+                                <span id="line_dispatch_name" class="flex-grow-1">${lineData.dispatch_name || ''}</span>
+                                <button type="button" 
+                                        class="btn btn-sm btn-link p-0 text-primary edit-dispatch-name-btn" 
+                                        data-line-id="${lineId}"
+                                        title="Редактировать диспетчерское наименование"
+                                        style="text-decoration: none; flex-shrink: 0;">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            </p>
+                            <p><strong>Наименование в PowerFactory: </strong>
+                                <span id="line_pf_name">${lineData.pf_name || ''}</span>
+                            </p>
+                            <p><strong>Напряжение, кВ: </strong>
+                                <span id="line_voltage">${lineData.voltage_level || ''}</span>
+                            </p>
+                            <p><strong>ДДТН, А: </strong>
+                                <span id="line_current_capacity">${lineData.current_capacity || ''}</span>
+                            </p>
+                            <p><strong>Длина ЛЭП, км: </strong>
+                                <span id="line_length">${lineData.length || ''}</span>
+                            </p>
+                            <p><strong>Сопротивление прямой последовательности, Ом: </strong>
+                                <span id="line_r1_x1">${r1x1}</span>
+                            </p>
+                            <p><strong>Сопротивление нулевой последовательности, Ом: </strong>
+                                <span id="line_r0_x0">${r0x0}</span>
+                            </p>
+                            <div id="line_branch_substations">${branchSubstationsHtml}</div>
+                        `;
+                        
+                        $lineInfoBody.html(fullHtml);
+                        
+                        // Инициализируем обработчик для кнопки редактирования
+                        $(document).off('click', '.edit-dispatch-name-btn').on('click', '.edit-dispatch-name-btn', function(e) {
+                            // Обработчик уже должен быть инициализирован глобально, но на всякий случай
+                        });
+                    } else {
+                        // Элементы уже существуют, просто обновляем их
+                        const $dispatchNameContainer = $('#line_dispatch_name').parent();
+                        if ($dispatchNameContainer.length) {
+                            $dispatchNameContainer.html(`
+                                <strong>Диспетчерское наименование: </strong>
+                                <span id="line_dispatch_name" class="flex-grow-1">${lineData.dispatch_name || ''}</span>
+                                <button type="button" 
+                                        class="btn btn-sm btn-link p-0 text-primary edit-dispatch-name-btn" 
+                                        data-line-id="${lineId}"
+                                        title="Редактировать диспетчерское наименование"
+                                        style="text-decoration: none; flex-shrink: 0;">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                            `);
+                        } else {
+                            $('#line_dispatch_name').text(lineData.dispatch_name || '');
+                        }
+                        
+                        $('#line_pf_name').text(lineData.pf_name || '');
+                        $('#line_voltage').text(lineData.voltage_level || '');
+                        $('#line_current_capacity').text(lineData.current_capacity || '');
+                        $('#line_length').text(lineData.length || '');
+                        
+                        // Обновляем сопротивления
+                        let r1x1 = '';
+                        if (lineData.r1 && lineData.x1) {
+                            const r1 = parseFloat(lineData.r1).toFixed(2);
+                            const x1 = parseFloat(lineData.x1).toFixed(2);
+                            r1x1 = r1 + '+j' + x1;
+                        }
+                        $('#line_r1_x1').text(r1x1);
+                        
+                        let r0x0 = '';
+                        if (lineData.r0 && lineData.x0) {
+                            const r0 = parseFloat(lineData.r0).toFixed(2);
+                            const x0 = parseFloat(lineData.x0).toFixed(2);
+                            r0x0 = r0 + '+j' + x0;
+                        }
+                        $('#line_r0_x0').text(r0x0);
+
+                        // Обновляем подстанции ответвлений
+                        const branchContainer = $('#line_branch_substations');
+                        if (lineData.branch_substations && lineData.branch_substations.length > 0) {
+                            const label = lineData.branch_substations.length === 1 ? 'Отпаечная ПС:' : 'Отпаечные ПС:';
+                            let html = '<p class="mb-1"><strong>' + label + '</strong></p>';
+                            if (lineData.branch_substations.length > 1) {
+                                html += '<ul class="mb-0 ps-3" style="list-style-type: disc;">';
+                                lineData.branch_substations.forEach(function(substation) {
+                                    html += '<li class="mb-1">' + substation + '</li>';
+                                });
+                                html += '</ul>';
+                            } else {
+                                html += '<p class="mb-0 ps-3">' + lineData.branch_substations[0] + '</p>';
+                            }
+                            branchContainer.html(html);
+                        } else {
+                            branchContainer.html('');
+                        }
+                    }
+                    
+                    // Показываем карточку, если она была скрыта
+                    $('#line_info_card').show();
+                }
+                
+                // Функция для обновления информации об устройстве РЗА
+                function updateDeviceInfo(deviceData) {
+                    if (!deviceData) {
+                        // Если данных нет, очищаем поля
+                        $('#device_model').text('');
+                        $('#device_manufacturer').text('');
+                        $('#methodology_document_p').hide();
+                        $('#methodology_date_p').hide();
+                        $('#methodology_management_container button').hide();
+                        return;
+                    }
+                    
+                    // Обновляем модель устройства
+                    $('#device_model').text(deviceData.device_model || '');
+                    
+                    // Обновляем производителя
+                    $('#device_manufacturer').text(deviceData.manufacturer || '');
+                    
+                    // Обновляем информацию о методике
+                    if (deviceData.methodology_id && deviceData.methodology_name) {
+                        // Обновляем ссылку на документ методики
+                        $('#methodology_document_link').attr('href', deviceData.methodology_url || '#');
+                        $('#methodology_document_p').show();
+                        
+                        // Обновляем дату загрузки
+                        if (deviceData.methodology_created_at) {
+                            $('#methodology_date').text(deviceData.methodology_created_at);
+                            $('#methodology_date_p').show();
+                        } else {
+                            $('#methodology_date_p').hide();
+                        }
+                    } else {
+                        // Скрываем информацию о методике, если её нет
+                        $('#methodology_document_p').hide();
+                        $('#methodology_date_p').hide();
+                    }
+                    
+                    // Показываем кнопку управления методиками, если есть устройство
+                    if (deviceData.device_model) {
+                        $('#methodology_management_container button').show();
+                    } else {
+                        $('#methodology_management_container button').hide();
+                    }
+                    
+                    // Показываем карточку, если она была скрыта
+                    $('#device_info_card').show();
+                }
+                
+                // Функция для обновления информации о топологии полукомплектов
+                function updateTopologyInfo(halfSet1Name, halfSet2Name, topology1, topology2) {
+                    // Обновляем название полукомплекта 1
+                    if (halfSet1Name) {
+                        $('#half_set1_name').text(halfSet1Name);
+                    } else {
+                        $('#half_set1_name').text('Полукомплект 1');
+                    }
+                    
+                    // Обновляем количество ЛЭП для полукомплекта 1
+                    if (topology1 && topology1.ЛЭП) {
+                        $('#half_set1_lines_count').text(topology1.ЛЭП.length);
+                    } else {
+                        $('#half_set1_lines_count').text('0');
+                    }
+                    
+                    // Обновляем количество АТ для полукомплекта 1
+                    if (topology1 && topology1.АТ) {
+                        $('#half_set1_at_count').text(topology1.АТ.length);
+                    } else {
+                        $('#half_set1_at_count').text('0');
+                    }
+                    
+                    // Обновляем название полукомплекта 2
+                    if (halfSet2Name) {
+                        $('#half_set2_name').text(halfSet2Name);
+                    } else {
+                        $('#half_set2_name').text('Полукомплект 2');
+                    }
+                    
+                    // Обновляем количество ЛЭП для полукомплекта 2
+                    if (topology2 && topology2.ЛЭП) {
+                        $('#half_set2_lines_count').text(topology2.ЛЭП.length);
+                    } else {
+                        $('#half_set2_lines_count').text('0');
+                    }
+                    
+                    // Обновляем количество АТ для полукомплекта 2
+                    if (topology2 && topology2.АТ) {
+                        $('#half_set2_at_count').text(topology2.АТ.length);
+                    } else {
+                        $('#half_set2_at_count').text('0');
+                    }
+                }
+                
+                // Функция для отображения карточек ЛЭП
+                function renderLineCards(linesToShow, selectedLineId) {
+                    const container = $('#lines_list_container');
+                    
+                    // Показываем разделитель "Все ЛЭП", если есть результаты
+                    if (linesToShow.length > 0) {
+                        $('#main_list_count').text(linesToShow.length);
+                        $('#main_list_separator').show();
+                    } else {
+                        $('#main_list_separator').hide();
+                    }
+                    
+                    if (linesToShow.length === 0) {
+                        let emptyMessage = '<div class="text-center py-5">';
+                        emptyMessage += '<div class="mb-3">';
+                        emptyMessage += '<i class="bi bi-search text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                        emptyMessage += '</div>';
+                        emptyMessage += '<h5 class="text-muted mb-3">ЛЭП не найдены</h5>';
+                        
+                        if (searchQuery) {
+                            emptyMessage += '<p class="text-muted mb-4">По запросу <strong>"' + searchQuery + '"</strong> ничего не найдено.</p>';
+                            emptyMessage += '<div class="d-flex gap-2 justify-content-center">';
+                            emptyMessage += '<button type="button" class="btn btn-outline-primary" id="clear_search_from_empty">';
+                            emptyMessage += '<i class="bi bi-x-circle me-1"></i> Очистить поиск';
+                            emptyMessage += '</button>';
+                            emptyMessage += '</div>';
+                        } else {
+                            const lineTypeId = $('#id_line_type_filter').val();
+                            const voltage = $('#id_voltage_filter').val();
+                            if (lineTypeId || voltage) {
+                                emptyMessage += '<p class="text-muted mb-4">По выбранным фильтрам ничего не найдено.</p>';
+                                emptyMessage += '<div class="d-flex gap-2 justify-content-center">';
+                                emptyMessage += '<button type="button" class="btn btn-outline-primary" id="reset_filters_from_empty">';
+                                emptyMessage += '<i class="bi bi-arrow-counterclockwise me-1"></i> Сбросить фильтры';
+                                emptyMessage += '</button>';
+                                emptyMessage += '</div>';
+                            } else {
+                                emptyMessage += '<p class="text-muted mb-0">Попробуйте изменить критерии поиска или фильтры.</p>';
+                            }
+                        }
+                        emptyMessage += '</div>';
+                        container.html(emptyMessage);
+                        
+                        // Обработчики кнопок в сообщении
+                        $('#clear_search_from_empty').on('click', function() {
+                            $('#line_search_input').val('').trigger('input');
+                        });
+                        $('#reset_filters_from_empty').on('click', function() {
+                            $('#id_line_type_filter, #id_voltage_filter').val(null).trigger('change');
+                        });
+                        
+                        return;
+                    }
+                    
+                    let cardsHtml = '<div class="row g-1">';
+                    linesToShow.forEach(function (line) {
+                        const isSelected = selectedLineId == line.id;
+                        const cardClass = isSelected ? 'border-primary' : '';
+                        
+                        // Определяем цветовую индикацию по напряжению
+                        const voltage = line.voltage_level ? parseInt(line.voltage_level) : null;
+                        const voltageClass = voltage === 110 ? 'voltage-110' : (voltage === 220 ? 'voltage-220' : (voltage === 500 ? 'voltage-500' : ''));
+                        const voltageBadge = line.voltage_level ? 
+                            `<span class="line-voltage-badge ${voltageClass}">${line.voltage_level} кВ</span>` : '';
+                        
+                        // Формируем tooltip с дополнительной информацией (обычный текст для title)
+                        let tooltipContent = line.name;
+                        if (line.voltage_level) {
+                            tooltipContent += '; Напряжение: ' + line.voltage_level + ' кВ';
+                        }
+                        if (line.line_type_name) {
+                            tooltipContent += '; Тип: ' + line.line_type_name;
+                        }
+                        
+                        cardsHtml += `
+                            <div class="col-md-6 col-lg-4 col-xl-3 d-flex">
+                                <div class="card line-card ${cardClass}" 
+                                     data-line-id="${line.id}" 
+                                     data-voltage="${voltage || ''}"
+                                     title="${tooltipContent.replace(/<br>/g, '; ').replace(/<[^>]*>/g, '')}"
+                                     style="cursor: pointer; transition: all 0.2s; width: 100%;">
+                                    <div class="card-body">
+                                        <div class="line-name-wrapper mb-1">
+                                            <div class="line-number">${line.name}</div>
+                                        </div>
+                                        <div class="line-meta-wrapper d-flex align-items-center gap-1 flex-wrap" style="opacity: 0.65;">
+                                            ${voltageBadge}
+                                            ${line.line_type_name ? `<span class="line-type-text text-muted" style="font-size: 0.68rem; font-weight: 400;">${line.line_type_name}</span>` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    cardsHtml += '</div>';
+                    container.html(cardsHtml);
+
+                    // Добавляем обработчики клика на карточки
+                    $('.line-card').on('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        
+                        const lineId = $(this).data('line-id');
+                        const $card = $(this);
+                        
+                        // Визуальная обратная связь - выделяем выбранную карточку
+                        $('.line-card').removeClass('border-primary');
+                        $card.addClass('border-primary');
+                        
+                        // Прокручиваем к выбранной карточке для визуальной связи
+                        const cardOffset = $card.offset();
+                        if (cardOffset) {
+                            const cardHeight = $card.outerHeight();
+                            const windowHeight = $(window).height();
+                            const scrollTop = $(window).scrollTop();
+                            const targetScroll = cardOffset.top + scrollTop - (windowHeight / 2) + (cardHeight / 2);
+                            $('html, body').animate({
+                                scrollTop: targetScroll
+                            }, 300);
+                        }
+                        
+                        // Устанавливаем значение в скрытое поле формы
+                        $('#id_line').val(lineId).trigger('change');
+                        
+                        // Отправляем AJAX запрос для выбора ЛЭП (без перезагрузки страницы)
+                        $.ajax({
+                            url: '{% url "select_line_ajax" %}',
+                            type: 'POST',
+                            data: {
+                                'csrfmiddlewaretoken': $('[name=csrfmiddlewaretoken]').val(),
+                                'line': lineId
+                            },
+                            success: function(response) {
+                                if (response.success) {
+                                    // Обновляем информацию о ЛЭП, устройстве РЗА и полукомплектах
+                                    updateLineInfo(response.line_data);
+                                    updateDeviceInfo(response.device_data);
+                                    updateTopologyInfo(response.half_set1, response.half_set2, 
+                                                      response.half_set1_topology_display, 
+                                                      response.half_set2_topology_display);
+                                } else {
+                                    alert('Ошибка: ' + (response.message || 'Не удалось выбрать ЛЭП'));
+                                    // Снимаем выделение при ошибке
+                                    $card.removeClass('border-primary');
+                                }
+                            },
+                            error: function(xhr) {
+                                let errorMsg = 'Ошибка при выборе ЛЭП';
+                                if (xhr.responseJSON && xhr.responseJSON.message) {
+                                    errorMsg = xhr.responseJSON.message;
+                                }
+                                alert(errorMsg);
+                                // Снимаем выделение при ошибке
+                                $card.removeClass('border-primary');
+                            }
+                        });
+                    });
+
+                    // Восстанавливаем выделение, если была выбрана ЛЭП (но не отправляем форму автоматически)
+                    if (selectedLineId) {
+                        const $selectedCard = $(`.line-card[data-line-id="${selectedLineId}"]`);
+                        $selectedCard.addClass('border-primary');
+                        $('#id_line').val(selectedLineId).trigger('change');
+                        
+                        // Прокручиваем к выбранной карточке при загрузке
+                        setTimeout(function() {
+                            if ($selectedCard.length && $selectedCard.offset()) {
+                                const cardOffset = $selectedCard.offset();
+                                const cardHeight = $selectedCard.outerHeight();
+                                const windowHeight = $(window).height();
+                                const scrollTop = $(window).scrollTop();
+                                const targetScroll = cardOffset.top + scrollTop - (windowHeight / 2) + (cardHeight / 2);
+                                $('html, body').animate({
+                                    scrollTop: targetScroll
+                                }, 500);
+                            }
+                        }, 300);
+                    }
+                    
+                    // Обновляем счетчик результатов
+                    const filteredLines = filterLinesBySearch(allLinesData, searchQuery);
+                    const totalFiltered = filteredLines.length;
+                    
+                    // Обновляем счетчик в разделителе
+                    $('#main_list_count').text(totalFiltered);
+                }
 
                 // Функция для обновления списка ЛЭП
                 function updateLineList() {
                     const lineTypeId = $('#id_line_type_filter').val();
                     const voltage = $('#id_voltage_filter').val();
+                    const container = $('#lines_list_container');
+                    const selectedLineId = $('#id_line').val();
 
-                    $.ajax({
+                    // Показываем индикатор загрузки
+                    container.html('<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Загрузка...</span></div> <span class="ms-2">Загрузка ЛЭП...</span></div>');
+
+                    // Возвращаем Promise для возможности ожидания завершения загрузки
+                    return $.ajax({
                         url: '{% url "filter_lines_ajax" %}',
                         type: 'GET',
                         data: {
                             'line_type_id': lineTypeId || '',
-                            'voltage': voltage || ''  // Если пусто, отправляем пустую строку (не фильтруем)
+                            'voltage': voltage || ''
                         },
                         success: function (response) {
                             const lineSelect = $('#id_line');
                             lineSelect.empty();
                             lineSelect.append('<option value="">ЛЭП не выбрана</option>');
 
+                            // Сохраняем все загруженные ЛЭП
+                            allLinesData = response.lines;
+
+                            // Обновляем скрытое поле для формы
                             response.lines.forEach(function (line) {
                                 lineSelect.append(
                                     $('<option></option>')
@@ -87,27 +915,130 @@
                                 );
                             });
 
-                            // Обновляем Select2
-                            lineSelect.trigger('change');
+                            // Обновляем активные фильтры
+                            if (response.active_filters) {
+                                updateActiveFilters(response.active_filters);
+                            } else {
+                                updateActiveFilters([]);
+                            }
+                            
+                            // Применяем поиск и отображаем все карточки
+                            const filteredLines = filterLinesBySearch(allLinesData, searchQuery);
+                            const linesToShow = filteredLines; // Показываем все отфильтрованные ЛЭП
+                            
+                            // Обновляем счетчик
+                            const totalCount = response.total_count || response.lines.length;
+                            // Обновляем счетчик в разделителе
+                            $('#main_list_count').text(filteredLines.length);
+                            
+                            // Отображаем карточки ЛЭП
+                            renderLineCards(linesToShow, selectedLineId);
                         },
                         error: function () {
+                            container.html('<div class="alert alert-danger mb-0" role="alert"><i class="bi bi-x-circle"></i> Ошибка при загрузке ЛЭП</div>');
                             console.error('Ошибка при загрузке ЛЭП');
                         }
                     });
                 }
+                
+                // Обработчик кнопки показа/скрытия фильтров
+                $('#toggle_filters_btn').on('click', function() {
+                    $('#filters_container').slideToggle(200);
+                    const icon = $(this).find('i');
+                    if ($('#filters_container').is(':visible')) {
+                        icon.removeClass('bi-funnel').addClass('bi-funnel-fill');
+                    } else {
+                        icon.removeClass('bi-funnel-fill').addClass('bi-funnel');
+                    }
+                });
+                
+                // Обработчик поиска по названию
+                $('#line_search_input').on('input', function() {
+                    searchQuery = $(this).val();
+                    const clearBtn = $('#clear_search_btn');
+                    
+                    if (searchQuery.trim() !== '') {
+                        clearBtn.show();
+                    } else {
+                        clearBtn.hide();
+                    }
+                    
+                    // Применяем поиск к уже загруженным данным
+                    const filteredLines = filterLinesBySearch(allLinesData, searchQuery);
+                    const linesToShow = filteredLines; // Показываем все отфильтрованные ЛЭП
+                    const selectedLineId = $('#id_line').val();
+                    
+                    // Обновляем счетчик в разделителе
+                    $('#main_list_count').text(filteredLines.length);
+                    
+                    renderLineCards(linesToShow, selectedLineId);
+                });
+                
+                // Обработчик кнопки очистки поиска
+                $('#clear_search_btn').on('click', function() {
+                    $('#line_search_input').val('').trigger('input');
+                });
 
                 // Обработчики изменения фильтров
                 $('#id_line_type_filter, #id_voltage_filter').on('change', function () {
+                    saveFiltersToStorage();
+                    // Сбрасываем поиск при изменении фильтров
+                    $('#line_search_input').val('');
+                    searchQuery = '';
+                    $('#clear_search_btn').hide();
                     updateLineList();
                 });
+                
+                // Обработчик смены проекта (очистка фильтров при смене проекта)
+                $(document).on('change', '#id_project_name, #project_name, select[name="project_name"]', function() {
+                    // Очищаем фильтры
+                    $('#id_line_type_filter').val(null).trigger('change');
+                    $('#id_voltage_filter').val(null).trigger('change');
+                    $('#line_search_input').val('');
+                    searchQuery = '';
+                    $('#clear_search_btn').hide();
+                    $('#active_filters_container').hide();
+                    
+                    // Очищаем localStorage для старого проекта и загружаем для нового
+                    const projectKey = getProjectKey();
+                    localStorage.removeItem('line_type_filter_' + projectKey);
+                    localStorage.removeItem('voltage_filter_' + projectKey);
+                    
+                    // Загружаем список ЛЭП для нового проекта
+                    updateLineList();
+                });
+                
+                // Восстанавливаем фильтры при загрузке страницы
+                setTimeout(function() {
+                    // Стандартное восстановление фильтров из localStorage
+                    // Сначала явно очищаем фильтры
+                    $('#id_voltage_filter').val(null).trigger('change.select2');
+                    $('#id_line_type_filter').val(null).trigger('change.select2');
+                    
+                    // Затем восстанавливаем из localStorage (если есть сохраненные)
+                    // Функция restoreFiltersFromStorage сама проверит валидность значений
+                    restoreFiltersFromStorage();
+                    
+                    // Дополнительная проверка: если после восстановления значения все еще пустые,
+                    // убеждаемся, что Select2 отображает placeholder
+                    if (!$('#id_voltage_filter').val() || $('#id_voltage_filter').val() === '') {
+                        $('#id_voltage_filter').val(null).trigger('change.select2');
+                    }
+                    if (!$('#id_line_type_filter').val() || $('#id_line_type_filter').val() === '') {
+                        $('#id_line_type_filter').val(null).trigger('change.select2');
+                    }
+                    
+                    // Загружаем список ЛЭП (с восстановленными фильтрами или без них)
+                    // Если фильтров нет, показываем первые 18 ЛЭП
+                    updateLineList();
+                }, 300);
 
-                // Автоматическое обновление ТН при выборе ЛЭП (для формы коэффициентов)
+                // Автоматическое обновление ТН при выборе ЛЭП
                 $('#id_line').on('change', function () {
                     const lineId = $(this).val();
                     const vtSelect = $('#id_calculation_vt');
 
                     if (lineId) {
-                        // Запрашиваем подходящий ТН для выбранной ЛЭП
                         $.ajax({
                             url: '{% url "get_line_vt_ajax" %}',
                             type: 'GET',
@@ -116,7 +1047,6 @@
                             },
                             success: function (response) {
                                 if (response.success && response.vt_id) {
-                                    // Устанавливаем найденный ТН в форму коэффициентов
                                     vtSelect.val(response.vt_id).trigger('change');
                                 }
                             },
@@ -127,9 +1057,172 @@
                     }
                 });
             });
+            
+            // Inline редактирование диспетчерского наименования
+            $(document).on('click', '.edit-dispatch-name-btn', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const $btn = $(this);
+                const $span = $('#line_dispatch_name');
+                const lineId = $btn.data('line-id');
+                const currentValue = $span.text().trim();
+                
+                // Создаем контейнер для редактирования
+                const $editContainer = $('<div>', {
+                    class: 'd-flex align-items-center gap-2 flex-wrap',
+                    style: 'width: 100%;'
+                });
+                
+                // Создаем input поле
+                const $input = $('<input>', {
+                    type: 'text',
+                    class: 'form-control form-control-sm',
+                    value: currentValue,
+                    style: 'flex: 1; min-width: 250px;',
+                    id: 'edit_dispatch_name_input'
+                });
+                
+                // Создаем кнопки действий
+                const $saveBtn = $('<button>', {
+                    type: 'button',
+                    class: 'btn btn-sm btn-success',
+                    html: '<i class="bi bi-check"></i>',
+                    title: 'Сохранить',
+                    style: 'flex-shrink: 0;'
+                });
+                
+                const $cancelBtn = $('<button>', {
+                    type: 'button',
+                    class: 'btn btn-sm btn-secondary',
+                    html: '<i class="bi bi-x"></i>',
+                    title: 'Отмена',
+                    style: 'flex-shrink: 0;'
+                });
+                
+                // Добавляем элементы в контейнер
+                $editContainer.append($input).append($saveBtn).append($cancelBtn);
+                
+                // Заменяем весь параграф на контейнер редактирования
+                const $parent = $span.closest('p');
+                $parent.html('<strong>Диспетчерское наименование: </strong>').append($editContainer);
+                $btn.hide();
+                $input.focus().select();
+                
+                // Обработчик сохранения
+                $saveBtn.on('click', function() {
+                    const newValue = $input.val().trim();
+                    
+                    if (newValue === currentValue) {
+                        // Значение не изменилось, просто отменяем
+                        cancelEdit();
+                        return;
+                    }
+                    
+                    if (!newValue) {
+                        alert('Диспетчерское наименование не может быть пустым');
+                        return;
+                    }
+                    
+                    if (newValue.length > 300) {
+                        alert('Диспетчерское наименование не может быть длиннее 300 символов');
+                        return;
+                    }
+                    
+                    // Отправляем AJAX запрос
+                    $.ajax({
+                        url: '{% url "update_line_dispatch_name_ajax" %}',
+                        type: 'POST',
+                        data: {
+                            'csrfmiddlewaretoken': $('[name=csrfmiddlewaretoken]').val(),
+                            'line_id': lineId,
+                            'dispatch_name': newValue
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                // Восстанавливаем параграф с новым значением
+                                const $parent = $input.closest('p');
+                                $parent.html(`
+                                    <strong>Диспетчерское наименование: </strong>
+                                    <span id="line_dispatch_name" class="flex-grow-1">${response.dispatch_name}</span>
+                                    <button type="button" 
+                                            class="btn btn-sm btn-link p-0 text-primary edit-dispatch-name-btn" 
+                                            data-line-id="${lineId}"
+                                            title="Редактировать диспетчерское наименование"
+                                            style="text-decoration: none; flex-shrink: 0;">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                `);
+                                
+                                // Обновляем также в списке карточек, если нужно
+                                updateLineCardsAfterEdit(lineId, response.dispatch_name);
+                    } else {
+                                alert('Ошибка: ' + (response.message || 'Не удалось сохранить'));
+                            }
+                        },
+                        error: function(xhr) {
+                            let errorMsg = 'Ошибка при сохранении';
+                            if (xhr.responseJSON && xhr.responseJSON.message) {
+                                errorMsg = xhr.responseJSON.message;
+                            }
+                            alert(errorMsg);
+                    }
+                });
+            });
+                
+                // Обработчик отмены
+                function cancelEdit() {
+                    const $parent = $input.closest('p');
+                    $parent.html(`
+                        <strong>Диспетчерское наименование: </strong>
+                        <span id="line_dispatch_name" class="flex-grow-1">${currentValue}</span>
+                        <button type="button" 
+                                class="btn btn-sm btn-link p-0 text-primary edit-dispatch-name-btn" 
+                                data-line-id="${lineId}"
+                                title="Редактировать диспетчерское наименование"
+                                style="text-decoration: none; flex-shrink: 0;">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    `);
+                }
+                
+                $cancelBtn.on('click', cancelEdit);
+                
+                // Отмена по Escape
+                $input.on('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        cancelEdit();
+                    } else if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        $saveBtn.click();
+                    }
+                });
+            });
+            
+            // Функция для обновления карточек после редактирования
+            function updateLineCardsAfterEdit(lineId, newDispatchName) {
+                // Обновляем текст в карточке, если она видна
+                const $card = $(`.line-card[data-line-id="${lineId}"]`);
+                if ($card.length) {
+                    $card.find('.line-number').text(newDispatchName);
+                    
+                    // Обновляем tooltip
+                    const voltage = $card.data('voltage');
+                    const lineType = $card.find('.line-type-text').text();
+                    
+                    let fullTooltip = newDispatchName;
+                    if (voltage) {
+                        fullTooltip += '; Напряжение: ' + voltage + ' кВ';
+                    }
+                    if (lineType) {
+                        fullTooltip += '; Тип: ' + lineType;
+                    }
+                    
+                    // Обновляем нативный title атрибут
+                    $card.attr('title', fullTooltip);
+                }
+            }
         </script>
-        <button type="submit" name="action" value="select_line"
-            class="btn btn-outline-primary btn-sm">Подтвердить</button>
     </form>
 
 
@@ -137,38 +1230,52 @@
     <div class="row mt-3">
         <div class="col-6">
             <!-- Карточка ЛЭП -->
-            <div class="card">
+            <div class="card" id="line_info_card">
         <div class="card-header">
                     Защищаемая ЛЭП
         </div>
-        <div class="card-body">
-                    <p><strong>Диспетчерское наименование: </strong>
-                        {{ line.dispatch_name }}
+        <div class="card-body" id="line_info_body">
+                    {% if line %}
+                    <p class="d-flex align-items-center gap-2 flex-wrap">
+                        <strong>Диспетчерское наименование: </strong>
+                        <span id="line_dispatch_name" class="flex-grow-1">{{ line.dispatch_name }}</span>
+                        <button type="button" 
+                                class="btn btn-sm btn-link p-0 text-primary edit-dispatch-name-btn" 
+                                data-line-id="{{ line.id }}"
+                                title="Редактировать диспетчерское наименование"
+                                style="text-decoration: none; flex-shrink: 0;">
+                            <i class="bi bi-pencil"></i>
+                        </button>
                     </p>
                     <p><strong>Наименование в PowerFactory: </strong>
-                        {{ line.pf_name }}
+                        <span id="line_pf_name">{{ line.pf_name }}</span>
                     </p>
                     <p><strong>Напряжение, кВ: </strong>
-                        {{ line.voltage_level }}
+                        <span id="line_voltage">{{ line.voltage_level }}</span>
                     </p>
                     <p><strong>ДДТН, А: </strong>
-                        {{ line.current_capacity }}
+                        <span id="line_current_capacity">{{ line.current_capacity }}</span>
                     </p>
                     <p><strong>Длина ЛЭП, км: </strong>
-                        {{ line.length }}
+                        <span id="line_length">{{ line.length }}</span>
                     </p>
                     <p><strong>Сопротивление прямой последовательности, Ом: </strong>
+                        <span id="line_r1_x1">
                         {% if line.r1 is not None and line.x1 is not None %}
                         {{ line.r1|floatformat:2 }}+j{{ line.x1|floatformat:2 }}
                         {% endif %}
+                        </span>
                     </p>
                     <p><strong>Сопротивление нулевой последовательности, Ом: </strong>
+                        <span id="line_r0_x0">
                         {% if line.r0 is not None and line.x0 is not None %}
                         {{ line.r0|floatformat:2 }}+j{{ line.x0|floatformat:2 }}
                         {% endif %}
+                        </span>
                     </p>
+                    <div id="line_branch_substations">
                     {% if branch_substations %}
-                    <p class="mb-1"><strong>ПС ответвлений:</strong></p>
+                    <p class="mb-1"><strong>{% if branch_substations|length == 1 %}Отпаечная ПС:{% else %}Отпаечные ПС:{% endif %}</strong></p>
                     {% if branch_substations|length > 1 %}
                     <ul class="mb-0 ps-3" style="list-style-type: disc;">
                         {% for substation in branch_substations %}
@@ -179,42 +1286,65 @@
                     <p class="mb-0 ps-3">{{ branch_substations.0 }}</p>
                     {% endif %}
                     {% endif %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted">ЛЭП не выбрана</p>
+                    {% endif %}
         </div>
     </div>
 
             <!-- Карточка устройства РЗА -->
-            <div class="card mt-3">
+            <div class="card mt-3" id="device_info_card">
         <div class="card-header">
                     Устройство РЗА
         </div>
-        <div class="card-body">
-                    <p><strong>Модель устройства: </strong>
-                        {{ protection_device.device_model }}
+        <div class="card-body" id="device_info_body">
+                    <p id="device_model_p"><strong>Модель устройства: </strong>
+                        <span id="device_model">{% if protection_device %}{{ protection_device.device_model }}{% endif %}</span>
                     </p>
-            <p><strong>Производитель: </strong>
-                        {% if protection_device.manufacturer_fk %}
+            <p id="device_manufacturer_p"><strong>Производитель: </strong>
+                        <span id="device_manufacturer">
+                        {% if protection_device and protection_device.manufacturer_fk %}
                         {{ protection_device.manufacturer_fk.name }}
                         {% endif %}
+                        </span>
                     </p>
-                    {% if methodology %}
-                    <p><strong>Документ методики: </strong>
-                        <a href="{% url 'methodology_document' methodology.id %}" target="_blank"
-                            rel="noopener noreferrer" class="text-decoration-none">
-                            <i class="bi bi-file-earmark-pdf"></i> Открыть методику
-                        </a>
-                    </p>
-                    <p class="text-muted small mb-0">
-                        <i class="bi bi-calendar3"></i> Дата загрузки: {{ methodology.created_at|date:"d.m.Y H:i" }}
-                    </p>
-                    {% endif %}
-                    {% if protection_device %}
-                    <div class="mt-2">
+                    <div id="methodology_info_container">
+                        {% if methodology %}
+                        <p id="methodology_document_p"><strong>Документ методики: </strong>
+                            <a id="methodology_document_link" href="{% url 'methodology_document' methodology.id %}" target="_blank"
+                                rel="noopener noreferrer" class="text-decoration-none">
+                                <i class="bi bi-file-earmark-pdf"></i> Открыть методику
+                            </a>
+                        </p>
+                        <p id="methodology_date_p" class="text-muted small mb-0">
+                            <i class="bi bi-calendar3"></i> Дата загрузки: <span id="methodology_date">{{ methodology.created_at|date:"d.m.Y H:i" }}</span>
+                        </p>
+                        {% else %}
+                        <p id="methodology_document_p" style="display: none;"><strong>Документ методики: </strong>
+                            <a id="methodology_document_link" href="#" target="_blank"
+                                rel="noopener noreferrer" class="text-decoration-none">
+                                <i class="bi bi-file-earmark-pdf"></i> Открыть методику
+                            </a>
+                        </p>
+                        <p id="methodology_date_p" class="text-muted small mb-0" style="display: none;">
+                            <i class="bi bi-calendar3"></i> Дата загрузки: <span id="methodology_date"></span>
+                        </p>
+                        {% endif %}
+                    </div>
+                    <div id="methodology_management_container" class="mt-2">
+                        {% if protection_device %}
                         <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
                             data-bs-target="#modalMethodologies">
                             <i class="bi bi-gear"></i> Управление методиками
                         </button>
+                        {% else %}
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                            data-bs-target="#modalMethodologies" style="display: none;">
+                            <i class="bi bi-gear"></i> Управление методиками
+                        </button>
+                        {% endif %}
                     </div>
-                    {% endif %}
                 </div>
             </div>
 
@@ -239,23 +1369,23 @@
         </div>
 
         <!-- Топология полукомплекта 1 -->
-        <div class="col-3">
+        <div class="col-3" id="half_set1_topology">
             <ul class="list-group">
-                <li class="list-group-item">
-                    <strong>{{ half_set1 }}</strong>
+                <li class="list-group-item" style="background-color: var(--bs-card-cap-bg, #f8f9fa);">
+                    <strong id="half_set1_name">{% if half_set1 %}{{ half_set1 }}{% else %}Полукомплект 1{% endif %}</strong>
                 </li>
                 <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
                     data-bs-toggle="modal" data-bs-target="#modalLines1">
                     ЛЭП
-                    <span class="badge bg-primary rounded-pill">
-                        {{ half_set1_topology_display.ЛЭП|length }}
+                    <span class="badge bg-primary rounded-pill" id="half_set1_lines_count">
+                        {% if half_set1_topology_display %}{{ half_set1_topology_display.ЛЭП|length }}{% else %}0{% endif %}
                     </span>
                 </li>
                 <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
                     data-bs-toggle="modal" data-bs-target="#modalAutotrans1">
                     АТ
-                    <span class="badge bg-primary rounded-pill">
-                        {{ half_set1_topology_display.АТ|length }}
+                    <span class="badge bg-primary rounded-pill" id="half_set1_at_count">
+                        {% if half_set1_topology_display %}{{ half_set1_topology_display.АТ|length }}{% else %}0{% endif %}
                     </span>
                 </li>
                 <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
@@ -276,23 +1406,23 @@
         </div>
 
         <!-- Топология полукомплекта 2 -->
-        <div class="col-3">
+        <div class="col-3" id="half_set2_topology">
             <ul class="list-group">
-                <li class="list-group-item">
-                    <strong>{{ half_set2 }}</strong>
+                <li class="list-group-item" style="background-color: var(--bs-card-cap-bg, #f8f9fa);">
+                    <strong id="half_set2_name">{% if half_set2 %}{{ half_set2 }}{% else %}Полукомплект 2{% endif %}</strong>
                 </li>
                 <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
                     data-bs-toggle="modal" data-bs-target="#modalLines2">
                     ЛЭП
-                    <span class="badge bg-primary rounded-pill">
-                        {{ half_set2_topology_display.ЛЭП|length }}
+                    <span class="badge bg-primary rounded-pill" id="half_set2_lines_count">
+                        {% if half_set2_topology_display %}{{ half_set2_topology_display.ЛЭП|length }}{% else %}0{% endif %}
                     </span>
                 </li>
                 <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
                     data-bs-toggle="modal" data-bs-target="#modalAutotrans2">
                     АТ
-                    <span class="badge bg-primary rounded-pill">
-                        {{ half_set2_topology_display.АТ|length }}
+                    <span class="badge bg-primary rounded-pill" id="half_set2_at_count">
+                        {% if half_set2_topology_display %}{{ half_set2_topology_display.АТ|length }}{% else %}0{% endif %}
                     </span>
                 </li>
                 <li class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
@@ -517,7 +1647,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
                 </div>
                 <div class="modal-body">
-                    <form method="post" id="calculationForm" action="{% url 'calculation' %}">
+                    <form method="post" id="calculationForm" onsubmit="return false;">
                         {% csrf_token %}
 
                         <!-- Общие параметры -->
@@ -535,7 +1665,16 @@
                                         <label for="{{ calculation_form.load_current.id_for_label }}" class="form-label fw-semibold text-dark">
                                             {{ calculation_form.load_current.label }}
                                         </label>
-                                        {{ calculation_form.load_current }}
+                                        <input type="number" 
+                                               class="form-control form-control-lg" 
+                                               id="{{ calculation_form.load_current.id_for_label }}"
+                                               name="{{ calculation_form.load_current.name }}"
+                                               value="{% if calculation_form.load_current.value %}{{ calculation_form.load_current.value|unlocalize }}{% else %}{{ calculation_form.load_current.initial|unlocalize }}{% endif %}"
+                                               min="0" 
+                                               max="5000" 
+                                               step="100"
+                                               required
+                                               title="Допустимый диапазон: от 0 до 5000 А">
                                         {% if calculation_form.load_current.help_text %}
                                             <small class="form-text text-muted">{{ calculation_form.load_current.help_text }}</small>
                                         {% endif %}
@@ -621,13 +1760,15 @@
                                             <input type="number" 
                                                    class="form-control form-control-lg {% if organ.toggleable and not organ.enabled %}bg-light{% endif %}" 
                                                    id="id_{{ factor_key }}"
-                                                name="{{ factor_key }}"
-                                                value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
+                                                   name="{{ factor_key }}"
+                                                   value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
                                                    step="{% if factor_data.step is not None %}{{ factor_data.step|unlocalize }}{% else %}0.01{% endif %}" 
                                                    min="{% if factor_data.min is not None %}{{ factor_data.min|unlocalize }}{% else %}0{% endif %}" 
                                                    max="{% if factor_data.max is not None %}{{ factor_data.max|unlocalize }}{% endif %}"
                                                    {% if organ.toggleable and not organ.enabled %}disabled{% endif %} 
-                                                   {% if factor_key != 'rnnp_offset_resistance' %}required{% endif %}>
+                                                   {% if factor_key != 'rnnp_offset_resistance' %}required{% endif %}
+                                                   title="{% if factor_data.min is not None and factor_data.max is not None %}Допустимый диапазон: от {{ factor_data.min|unlocalize }} до {{ factor_data.max|unlocalize }}{% elif factor_data.min is not None %}Минимальное значение: {{ factor_data.min|unlocalize }}{% elif factor_data.max is not None %}Максимальное значение: {{ factor_data.max|unlocalize }}{% else %}Введите числовое значение{% endif %}{% if factor_data.default_value is not None %}. Значение по умолчанию: {{ factor_data.default_value|unlocalize }}{% endif %}"
+                                                   data-tooltip-content="{% if factor_data.min is not None and factor_data.max is not None %}Допустимый диапазон: от {{ factor_data.min|unlocalize }} до {{ factor_data.max|unlocalize }}{% elif factor_data.min is not None %}Минимальное значение: {{ factor_data.min|unlocalize }}{% elif factor_data.max is not None %}Максимальное значение: {{ factor_data.max|unlocalize }}{% else %}Введите числовое значение{% endif %}{% if factor_data.default_value is not None %}. Значение по умолчанию: {{ factor_data.default_value|unlocalize }}{% endif %}">
                                         </div>
                                         {% endfor %}
                                     </div>
@@ -656,10 +1797,10 @@
                     </form>
                 </div>
                 <div class="modal-footer">
-                    <input type="hidden" name="action" id="calculation_action" value="save_calculation_factors">
-                    <button type="submit" form="calculationForm"
-                        onclick="document.getElementById('calculation_action').value='save_calculation_factors';"
-                        class="btn btn-primary">Сохранить все коэффициенты</button>
+                    <div id="save_factors_message" class="me-auto" style="display: none;"></div>
+                    <button type="button" id="save_calculation_factors_btn" class="btn btn-primary">
+                        Сохранить все коэффициенты
+                    </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
                 </div>
             </div>
@@ -686,6 +1827,129 @@
                 minimumResultsForSearch: Infinity,
                 dropdownParent: $('#modalCalculationFactors')
             });
+            
+            // Обработчик открытия модального окна - загружаем сохраненные значения из сессии
+            $('#modalCalculationFactors').on('show.bs.modal', function () {
+                // Значения уже загружены из сессии при рендеринге страницы через Django template
+                // Нативные tooltips работают автоматически через атрибут title
+            });
+            
+            // Нормализация числовых значений: автоматическая замена запятой на точку
+            // Это обеспечивает корректную работу независимо от локали браузера
+            $(document).on('input', '#modalCalculationFactors input[type="number"]', function() {
+                let $input = $(this);
+                let value = $input.val();
+                // Заменяем запятую на точку
+                if (value && value.includes(',')) {
+                    value = value.replace(',', '.');
+                    $input.val(value);
+                }
+            });
+            
+            // Также нормализуем при потере фокуса (на случай, если пользователь вставил значение с запятой)
+            $(document).on('blur', '#modalCalculationFactors input[type="number"]', function() {
+                let $input = $(this);
+                let value = $input.val();
+                if (value && value.includes(',')) {
+                    value = value.replace(',', '.');
+                    $input.val(value);
+                }
+            });
+            
+            // Обработчик сохранения коэффициентов через AJAX
+            $('#save_calculation_factors_btn').on('click', function(e) {
+                e.preventDefault();
+                
+                const $btn = $(this);
+                const $form = $('#calculationForm');
+                const $message = $('#save_factors_message');
+                
+                // Проверяем валидность формы
+                if (!$form[0].checkValidity()) {
+                    $form[0].reportValidity();
+                    return;
+                }
+                
+                // Убеждаемся, что Select2 обновил значения в оригинальных select элементах
+                $('#id_calculation_ct').trigger('change');
+                $('#id_calculation_vt').trigger('change');
+                
+                // Собираем данные формы
+                const formData = new FormData($form[0]);
+                
+                // Добавляем состояние включения/отключения органов
+                $('input[type="checkbox"][id^="organ_enabled_"]').each(function() {
+                    const organName = $(this).attr('id').replace('organ_enabled_', '');
+                    if ($(this).is(':checked')) {
+                        formData.append(`organ_enabled_${organName}`, 'on');
+                    }
+                });
+                
+                // Блокируем кнопку
+                $btn.prop('disabled', true);
+                const originalText = $btn.html();
+                $btn.html('<span class="spinner-border spinner-border-sm me-2"></span>Сохранение...');
+                $message.hide();
+                
+                // Отправляем AJAX запрос
+                $.ajax({
+                    url: '{% url "save_calculation_factors_ajax" %}',
+                    type: 'POST',
+                    data: formData,
+                    processData: false,
+                    contentType: false,
+                    success: function(response) {
+                        if (response.success) {
+                            // Показываем сообщение об успехе
+                            $message.html(
+                                '<span class="badge bg-success"><i class="bi bi-check-circle"></i> ' + 
+                                response.message + '</span>'
+                            );
+                            $message.fadeIn();
+                            
+                            // Скрываем сообщение через 3 секунды
+                            setTimeout(function() {
+                                $message.fadeOut();
+                            }, 3000);
+                        } else {
+                            // Показываем сообщение об ошибке
+                            $message.html(
+                                '<span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> ' + 
+                                (response.message || 'Ошибка при сохранении') + '</span>'
+                            );
+                            $message.fadeIn();
+                        }
+                    },
+                    error: function(xhr) {
+                        let errorMsg = 'Ошибка при сохранении коэффициентов';
+                        if (xhr.responseJSON) {
+                            if (xhr.responseJSON.message) {
+                                errorMsg = xhr.responseJSON.message;
+                            }
+                            // Если есть детальные ошибки валидации, показываем их
+                            if (xhr.responseJSON.errors) {
+                                const errorDetails = [];
+                                for (const [field, messages] of Object.entries(xhr.responseJSON.errors)) {
+                                    errorDetails.push(`${field}: ${messages.join(', ')}`);
+                                }
+                                if (errorDetails.length > 0) {
+                                    errorMsg += '<br><small>' + errorDetails.join('<br>') + '</small>';
+                                }
+                            }
+                        }
+                        $message.html(
+                            '<span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> ' + 
+                            errorMsg + '</span>'
+                        );
+                        $message.fadeIn();
+                    },
+                    complete: function() {
+                        // Разблокируем кнопку
+                        $btn.prop('disabled', false);
+                        $btn.html(originalText);
+                    }
+                });
+            });
         });
     </script>
 
@@ -693,7 +1957,7 @@
     <!-- Модальное окно для управления методиками -->
     <div class="modal fade" id="modalMethodologies" tabindex="-1" aria-labelledby="modalMethodologies"
         aria-hidden="true">
-        <div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-dialog modal-dialog-scrollable modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">
@@ -816,13 +2080,28 @@
                                                                 <i class="bi bi-calendar3 me-1"></i>
                                                                 {{ meth.created_at|date:"d.m.Y H:i" }}
                                                             </td>
-                                                            <td>
+                                                            <td style="vertical-align: middle;">
+                                                                <div class="btn-group" role="group" style="display: flex; align-items: center; gap: 0.25rem;">
+                                                                    {% if not methodology or meth.id != methodology.id %}
+                                                                    {% if meth.is_compatible %}
+                                                                    <button type="button"
+                                                                        class="btn btn-sm btn-primary set-methodology-btn"
+                                                                        data-methodology-id="{{ meth.id }}"
+                                                                        data-methodology-name="{{ meth.get_filename }}"
+                                                                        {% if protection_device %}data-device-id="{{ protection_device.id }}"{% endif %}
+                                                                        title="Сделать текущей">
+                                                                        <i class="bi bi-check-circle"></i>
+                                                                    </button>
+                                                                    {% endif %}
+                                                                    {% endif %}
                                                                 <button type="button"
                                                                     class="btn btn-sm btn-danger delete-methodology-btn"
                                                                     data-methodology-id="{{ meth.id }}"
-                                                                    data-methodology-name="{{ meth.name_file }}">
-                                                                    <i class="bi bi-trash me-1"></i> Удалить
+                                                                    data-methodology-name="{{ meth.name_file }}"
+                                                                    title="Удалить">
+                                                                    <i class="bi bi-trash"></i>
                                                                 </button>
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                         {% endfor %}
@@ -888,8 +2167,65 @@
                 });
         }
 
-        // Используем делегирование событий для кнопок удаления (работает с динамически добавляемыми элементами)
+        // Используем делегирование событий для кнопок удаления и установки методики (работает с динамически добавляемыми элементами)
         document.addEventListener('click', function (e) {
+            // Обработка кнопки "Сделать текущей"
+            if (e.target.closest('.set-methodology-btn')) {
+                e.preventDefault();
+                const btn = e.target.closest('.set-methodology-btn');
+                const methodologyId = btn.getAttribute('data-methodology-id');
+                const methodologyName = btn.getAttribute('data-methodology-name');
+                const deviceId = btn.getAttribute('data-device-id');
+
+                if (!deviceId) {
+                    alert('Ошибка: не указано устройство защиты. Пожалуйста, сначала выберите ЛЭП и устройство защиты.');
+                    return;
+                }
+
+                // Показываем индикатор загрузки
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Установка...';
+
+                const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value ||
+                    document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+                
+                // Формируем URL для установки методики
+                let url = `{% url 'set_methodology' 0 %}`.replace('0', methodologyId);
+                if (deviceId) {
+                    url = `{% url 'set_methodology_for_device' 0 1 %}`.replace('0', methodologyId).replace('1', deviceId);
+                }
+
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `device_id=${deviceId}`
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Перезагружаем страницу для обновления всей информации о методике
+                            // Это гарантирует, что информация о текущей методике будет актуальной
+                            window.location.reload();
+                        } else {
+                            alert('Ошибка: ' + (data.message || 'Не удалось установить методику'));
+                            btn.disabled = false;
+                            btn.innerHTML = originalText;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Произошла ошибка при установке методики');
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                    });
+            }
+
+            // Обработка кнопки удаления
             if (e.target.closest('.delete-methodology-btn')) {
                 e.preventDefault();
                 const btn = e.target.closest('.delete-methodology-btn');
@@ -1072,6 +2408,9 @@
                     }
                 });
         }
+
+        // Нативный HTML title уже работает без дополнительной инициализации
+        // Удаляем код инициализации Bootstrap tooltips, так как Popper.js не загружен
     </script>
 
     <!-- Отступ снизу для удобства прокрутки -->
