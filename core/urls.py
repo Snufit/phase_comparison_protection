@@ -28,4 +28,14 @@ urlpatterns = [
         views.list_methodologies,
         name="list_methodologies_for_device",
     ),
+    path(
+        "methodology/set/<int:methodology_id>/",
+        views.set_methodology,
+        name="set_methodology",
+    ),
+    path(
+        "methodology/set/<int:methodology_id>/<int:device_id>/",
+        views.set_methodology,
+        name="set_methodology_for_device",
+    ),
 ]

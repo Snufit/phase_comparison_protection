@@ -187,18 +187,8 @@ def add_methodology(request, device_id=None):
                 request, f'Методика "{methodology.name_file}" успешно добавлена.'
             )
 
-            # Если указан device_id, привязываем методику к устройству
-            if post_device_id:
-                try:
-                    device = ProtectionDevice.objects.get(id=post_device_id)
-                    device.methodology = methodology
-                    device.save()
-                    messages.info(
-                        request,
-                        f'Методика привязана к устройству "{device.device_model}".',
-                    )
-                except (ProtectionDevice.DoesNotExist, ValueError):
-                    pass
+            # Методика добавляется, но не устанавливается автоматически как текущая
+            # Пользователь должен явно выбрать её через кнопку "Сделать текущей"
 
             if request.headers.get("X-Requested-With") == "XMLHttpRequest":
                 return JsonResponse(
@@ -282,3 +272,166 @@ def list_methodologies(request, device_id=None):
             pass
 
     return JsonResponse({"methodologies": methodologies_list})
+
+
+def _get_manufacturer_from_methodology_path(methodology):
+    """
+    Извлекает производителя из пути методики.
+    
+    :param methodology: Экземпляр MethodologyDocument
+    :return: Название производителя ("ЭКРА", "Релематика", "Бреслер", "Другие") или None
+    """
+    if not methodology or not methodology.name_file:
+        return None
+    
+    name_file_lower = methodology.name_file.lower()
+    path_parts = name_file_lower.replace("\\", "/").split("/")
+    
+    # Ищем папку производителя в пути (обычно это второй элемент после 'methodologies')
+    if len(path_parts) >= 2 and path_parts[0] == "methodologies":
+        manufacturer_in_path = path_parts[1]
+        if "экра" in manufacturer_in_path:
+            return "ЭКРА"
+        elif "релематика" in manufacturer_in_path:
+            return "Релематика"
+        elif "бреслер" in manufacturer_in_path or "нпп" in manufacturer_in_path:
+            return "Бреслер"
+        else:
+            return "Другие"
+    else:
+        # Для обратной совместимости: проверяем имя файла
+        if "экра" in name_file_lower:
+            return "ЭКРА"
+        elif "релематика" in name_file_lower:
+            return "Релематика"
+        elif "бреслер" in name_file_lower or "нпп" in name_file_lower:
+            return "Бреслер"
+        else:
+            return "Другие"
+
+
+def _get_manufacturer_category_from_device(device):
+    """
+    Определяет категорию производителя устройства защиты.
+    
+    :param device: Экземпляр ProtectionDevice
+    :return: Название категории производителя ("ЭКРА", "Релематика", "Бреслер") или None
+    """
+    if not device or not device.manufacturer_fk:
+        return None
+    
+    manufacturer_name = device.manufacturer_fk.name.upper()
+    
+    if "ЭКРА" in manufacturer_name:
+        return "ЭКРА"
+    elif "РЕЛЕМАТИКА" in manufacturer_name:
+        return "Релематика"
+    elif "БРЕСЛЕР" in manufacturer_name or "НПП" in manufacturer_name:
+        return "Бреслер"
+    
+    return None
+
+
+def _check_manufacturer_compatibility(methodology, device):
+    """
+    Проверяет совместимость производителя методики и устройства защиты.
+    
+    :param methodology: Экземпляр MethodologyDocument
+    :param device: Экземпляр ProtectionDevice
+    :return: (is_compatible: bool, error_message: str)
+    """
+    methodology_manufacturer = _get_manufacturer_from_methodology_path(methodology)
+    device_manufacturer = _get_manufacturer_category_from_device(device)
+    
+    # Если у устройства нет производителя, разрешаем установку
+    if not device_manufacturer:
+        return True, None
+    
+    # Если у методики нет производителя или это "Другие", разрешаем установку
+    if not methodology_manufacturer or methodology_manufacturer == "Другие":
+        return True, None
+    
+    # Проверяем совпадение производителей
+    if methodology_manufacturer != device_manufacturer:
+        return False, (
+            f"Нельзя установить методику производителя '{methodology_manufacturer}' "
+            f"для устройства производителя '{device.manufacturer_fk.name}'. "
+            f"Методика и устройство должны быть от одного производителя."
+        )
+    
+    return True, None
+
+
+@login_required
+@require_http_methods(["POST"])
+def set_methodology(request, methodology_id, device_id=None):
+    """View для установки методики как текущей для устройства защиты."""
+    methodology = get_object_or_404(MethodologyDocument, id=methodology_id)
+    
+    # Получаем device_id из POST, если он там есть, иначе из URL
+    post_device_id = request.POST.get("device_id") or device_id
+    
+    if not post_device_id:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "Не указано устройство защиты"
+                },
+                status=400
+            )
+        messages.error(request, "Ошибка: не указано устройство защиты.")
+        return redirect("calculation")
+    
+    try:
+        device = ProtectionDevice.objects.get(id=post_device_id)
+        
+        # Проверяем совместимость производителей
+        is_compatible, error_message = _check_manufacturer_compatibility(methodology, device)
+        
+        if not is_compatible:
+            if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "message": error_message
+                    },
+                    status=400
+                )
+            messages.error(request, error_message)
+            return redirect("calculation")
+        
+        device.methodology = methodology
+        device.save()
+        
+        # Обновляем объект из базы данных для гарантии актуальности данных
+        device.refresh_from_db()
+        
+        messages.success(
+            request,
+            f'Методика "{methodology.get_filename()}" установлена как текущая для устройства "{device.device_model}".'
+        )
+        
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JsonResponse(
+                {
+                    "success": True,
+                    "message": "Методика успешно установлена как текущая",
+                    "methodology_id": methodology.id,
+                    "methodology_name": methodology.get_filename(),
+                    "device_id": device.id,
+                }
+            )
+        return redirect("calculation")
+    except (ProtectionDevice.DoesNotExist, ValueError) as e:
+        _log_core(f"[ERROR] Ошибка при установке методики: {e}")
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "Устройство защиты не найдено"
+                },
+                status=404
+            )
+        messages.error(request, "Ошибка: устройство защиты не найдено.")
+        return redirect("calculation")

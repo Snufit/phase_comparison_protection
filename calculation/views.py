@@ -14,7 +14,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 
-from core.models import Line
+from core.models import Line, VoltageTransformer
 
 from .forms import LineSelectionForm, CalculationFactorsForm, SubmodesConfigurationForm
 from .models import CalculationMeta, SensitivityAnalysis, SettingsCalculation
@@ -93,12 +93,10 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     if line.vt:
                         calculation_form.fields["vt"].initial = line.vt
                 # Если у линии нет ТН, но есть напряжение, пытаемся найти подходящий
-                    elif line.voltage_level:
-                    from core.models import VoltageTransformer
-
-                    line_voltage_int = int(float(line.voltage_level))
-                    # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
-                    # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
+                    if not line.vt and line.voltage_level:
+                        line_voltage_int = int(float(line.voltage_level))
+                        # Ищем ТН с primary_voltage, соответствующим напряжению ЛЭП
+                        # Например: 110 кВ -> ТН 110000/100 (primary_voltage = 110)
                         vt_queryset = VoltageTransformer.objects.filter(
                         primary_voltage=line_voltage_int
                         ).order_by('id')
@@ -315,12 +313,31 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
         if calculation_factors:
             # Восстанавливаем форму с сохраненными коэффициентами
-            calculation_form = CalculationFactorsForm(initial=calculation_factors)
-            # Если в сессии есть ТТ и ТН, устанавливаем их
+            # Создаем копию для initial, так как мы можем изменить значения
+            form_initial = calculation_factors.copy()
+            
+            # Если в сессии есть ID ТТ и ТН, преобразуем их в объекты для формы
+            if "ct" in form_initial and isinstance(form_initial["ct"], int):
+                try:
+                    from core.models import CurrentTransformer
+                    form_initial["ct"] = CurrentTransformer.objects.get(pk=form_initial["ct"])
+                except CurrentTransformer.DoesNotExist:
+                    form_initial.pop("ct", None)
+            
+            if "vt" in form_initial and isinstance(form_initial["vt"], int):
+                try:
+                    from core.models import VoltageTransformer
+                    form_initial["vt"] = VoltageTransformer.objects.get(pk=form_initial["vt"])
+                except VoltageTransformer.DoesNotExist:
+                    form_initial.pop("vt", None)
+            
+            calculation_form = CalculationFactorsForm(initial=form_initial)
+            
+            # Если в сессии нет ТТ/ТН, но у линии они есть, используем их
             if line:
-                if line.ct:
+                if line.ct and "ct" not in form_initial:
                     calculation_form.fields["ct"].initial = line.ct
-                if line.vt:
+                if line.vt and "vt" not in form_initial:
                     calculation_form.fields["vt"].initial = line.vt
 
         # Получаем подстанции ответвлений для линии
@@ -557,6 +574,17 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             k: v for k, v in methodologies_by_manufacturer.items() if v
         }
 
+        # Проверяем совместимость методик с устройством защиты и добавляем атрибут к объектам
+        if protection_device:
+            from core.views import _check_manufacturer_compatibility
+            for meth in all_methodologies:
+                is_compatible, _ = _check_manufacturer_compatibility(meth, protection_device)
+                meth.is_compatible = is_compatible
+        else:
+            # Если устройства нет, все методики совместимы
+            for meth in all_methodologies:
+                meth.is_compatible = True
+
         return render(
             request,
             self.template_name,
@@ -726,14 +754,14 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 pf_line_data = None
                 
                 try:
-                pf_line = get_pf_line(app, line.pf_name)
+                    pf_line = get_pf_line(app, line.pf_name)
                     if pf_line:
-                pf_line_data = get_pf_line_data(pf_line)
+                        pf_line_data = get_pf_line_data(pf_line)
                         if pf_line_data:
-                request.session["line_data"] = pf_line_data
-                # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
+                            request.session["line_data"] = pf_line_data
+                            # Получаем напряжение ЛЭП из PowerFactory и сохраняем в модель
                             try:
-                line.update_voltage_from_pf(app)
+                                line.update_voltage_from_pf(app)
                             except RuntimeError as e:
                                 if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
                                     FaultCalculationService._log("[DEBUG] Ошибка многопоточности при обновлении напряжения из PowerFactory, пропускаем")
@@ -813,12 +841,12 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                             "пробуем с app (может быть нестабильно)"
                         )
                         try:
-                    half_set1_topology = topology_service1.get_half_set_topology(
-                        app=app, force_refresh=False
-                    )
-                    half_set2_topology = topology_service2.get_half_set_topology(
-                        app=app, force_refresh=False
-                    )
+                            half_set1_topology = topology_service1.get_half_set_topology(
+                                app=app, force_refresh=False
+                            )
+                            half_set2_topology = topology_service2.get_half_set_topology(
+                                app=app, force_refresh=False
+                            )
                         except RuntimeError as e2:
                             if "can't be used from other threads" in str(e2) or "Ошибка многопоточности" in str(e2):
                                 # Если и с app не получилось, используем данные из БД (даже устаревшие)
@@ -996,6 +1024,20 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         return redirect("calculation")
 
     def save_calculation_factors(self, request):
+        def normalize_float(value_str):
+            """
+            Нормализует строковое значение числа, поддерживая как точку, так и запятую.
+            Заменяет запятую на точку и удаляет пробелы для корректного парсинга.
+            """
+            if not value_str:
+                return None
+            # Удаляем пробелы и заменяем запятую на точку
+            normalized = str(value_str).strip().replace(',', '.').replace(' ', '')
+            try:
+                return float(normalized)
+            except (ValueError, TypeError):
+                return None
+        
         # Собираем все коэффициенты из POST запроса
         calculation_factors = {}
 
@@ -1012,12 +1054,19 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         # Сначала получаем данные из стандартной формы
         form = CalculationFactorsForm(request.POST)
         if form.is_valid():
-            calculation_factors.update(form.cleaned_data)
+            # Сохраняем только числовые значения, не объекты
+            cleaned_data = form.cleaned_data.copy()
+            ct = cleaned_data.pop("ct", None)
+            vt = cleaned_data.pop("vt", None)
+            calculation_factors.update(cleaned_data)
+            
+            # Сохраняем ID ТТ и ТН для сессии (объекты не могут быть сериализованы)
+            if ct:
+                calculation_factors["ct"] = ct.id
+            if vt:
+                calculation_factors["vt"] = vt.id
             
             # Сохраняем выбранные ТТ и ТН в модель Line
-            ct = form.cleaned_data.get("ct")
-            vt = form.cleaned_data.get("vt")
-            
             if line:
                 # Если ТН не выбран пользователем, но у линии есть напряжение,
                 # пытаемся найти подходящий ТН автоматически
@@ -1033,6 +1082,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                     
                     if vt_queryset.exists():
                         vt = vt_queryset.first()
+                        calculation_factors["vt"] = vt.id
                         FaultCalculationService._log(
                             f"[DEBUG] Автоматически найден ТН для ЛЭП {line.dispatch_name}: {vt} "
                             f"(напряжение ЛЭП: {line.voltage_level} кВ, primary_voltage ТН: {vt.primary_voltage} кВ)"
@@ -1077,10 +1127,10 @@ class CalculationView(LoginRequiredMixin, TemplateView):
                 for factor_key in organ_data["calculation_factors"].keys():
                     # Получаем значение из POST, если оно есть
                     if factor_key in request.POST:
-                        try:
-                            value = float(request.POST[factor_key])
+                        value = normalize_float(request.POST[factor_key])
+                        if value is not None:
                             calculation_factors[factor_key] = value
-                        except (ValueError, TypeError):
+                        else:
                             # Если не удалось преобразовать, используем значение по умолчанию
                             default_value = organ_data["calculation_factors"][
                                 factor_key
@@ -1100,7 +1150,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
         request.session.modified = True
         messages.success(
             request,
-            f"Коэффициенты успешно сохранены. Всего сохранено: {len(calculation_factors)} коэффициентов.",
+            f"Коэффициенты успешно сохранены. Всего сохранено: {len(calculation_factors)} коэффициентов",
         )
         return redirect("calculation")
 
@@ -1217,10 +1267,43 @@ class CalculationView(LoginRequiredMixin, TemplateView):
 
         # Получаем состояние включения/отключения органов из сессии
         enabled_organs = request.session.get("enabled_organs", {})
+        
+        # Убеждаемся, что ТТ и ТН сохранены в модель Line перед расчетом
+        # (они должны быть сохранены при сохранении коэффициентов, но проверяем на всякий случай)
+        if calculation_factors:
+            if "ct" in calculation_factors and isinstance(calculation_factors["ct"], int):
+                from core.models import CurrentTransformer
+                try:
+                    ct = CurrentTransformer.objects.get(pk=calculation_factors["ct"])
+                    if not line.ct or line.ct.id != ct.id:
+                        line.ct = ct
+                        line.save()
+                except CurrentTransformer.DoesNotExist:
+                    FaultCalculationService._log(
+                        f"[WARNING] ТТ с ID={calculation_factors['ct']} не найден, используется ТТ из модели Line"
+                    )
+            
+            if "vt" in calculation_factors and isinstance(calculation_factors["vt"], int):
+                from core.models import VoltageTransformer
+                try:
+                    vt = VoltageTransformer.objects.get(pk=calculation_factors["vt"])
+                    if not line.vt or line.vt.id != vt.id:
+                        line.vt = vt
+                        line.save()
+                except VoltageTransformer.DoesNotExist:
+                    FaultCalculationService._log(
+                        f"[WARNING] ТН с ID={calculation_factors['vt']} не найден, используется ТН из модели Line"
+                    )
+        
+        # Удаляем ID ТТ и ТН из calculation_factors перед передачей в сервис
+        # (сервис ожидает только числовые коэффициенты, ТТ/ТН он берет из модели Line)
+        factors_for_service = calculation_factors.copy() if calculation_factors else {}
+        factors_for_service.pop("ct", None)
+        factors_for_service.pop("vt", None)
 
         # Выполняем расчет параметров настройки ДФЗ
         calculation_service = SettingsCalculationService(
-            calculation_meta, calculation_factors, enabled_organs
+            calculation_meta, factors_for_service, enabled_organs
         )
         calculation_service.run()
 
@@ -1272,10 +1355,385 @@ def filter_lines_ajax(request):
         except (ValueError, TypeError, Exception):
             pass
 
-    # Формируем список для JSON
-    lines = [{"id": line.id, "name": line.dispatch_name} for line in queryset]
+    # Формируем список для JSON с дополнительной информацией
+    lines = []
+    for line in queryset:
+        line_data = {
+            "id": line.id,
+            "name": line.dispatch_name,
+            "voltage_level": float(line.voltage_level) if line.voltage_level else None,
+            "line_type_name": line.line_type.type_code if line.line_type else None,
+        }
+        lines.append(line_data)
 
-    return JsonResponse({"lines": lines})
+    return JsonResponse({"lines": lines, "total_count": len(lines)})
+
+
+@require_http_methods(["POST"])
+@login_required
+def select_line_ajax(request):
+    """AJAX endpoint для выбора ЛЭП без перезагрузки страницы."""
+    from calculation.forms import LineSelectionForm
+    from calculation.services.fault_calculation_service import FaultCalculationService
+    
+    project_name = request.session.get("pf_project_name")
+    form = LineSelectionForm(request.POST, project_name=project_name)
+    
+    if form.is_valid():
+        line = form.cleaned_data["line"]
+        request.session["line_id"] = line.id
+        
+        # Получаем полукомплекты ЛЭП
+        protection_half_sets = list(line.protection_half_sets.all())
+        
+        # Проверяем наличие полукомплектов защиты
+        if len(protection_half_sets) < 2:
+            return JsonResponse({
+                "success": False,
+                "message": f"Для ЛЭП '{line.dispatch_name}' не найдено полукомплектов защиты. "
+                          f"Найдено: {len(protection_half_sets)}, требуется: 2."
+            }, status=400)
+        
+        # Сохраняем полукомплекты в сессии
+        half_set1 = protection_half_sets[0]
+        half_set2 = protection_half_sets[1]
+        request.session["half_set1_id"] = half_set1.id
+        request.session["half_set2_id"] = half_set2.id
+        
+        # Получаем устройство защиты
+        protection_device = half_set1.protection_device
+        
+        # Получаем информацию о подстанциях ответвлений
+        branch_substations = []
+        branches = line.branches.filter(is_active=True)
+        for branch in branches:
+            if branch.substation:
+                substation_name = branch.substation.pf_name or str(branch.substation)
+                branch_substations.append(substation_name)
+            elif branch.pf_name_substation:
+                branch_substations.append(branch.pf_name_substation)
+        
+        # Получаем топологию полукомплектов
+        from calculation.services.topology_analysis_service import TopologyAnalysisService
+        from calculation.views import CalculationView
+        
+        half_set1_topology_display = None
+        half_set2_topology_display = None
+        
+        try:
+            topology_service1 = TopologyAnalysisService(half_set1)
+            topology_service2 = TopologyAnalysisService(half_set2)
+            
+            # Пытаемся получить топологию из БД (без подключения к PF)
+            try:
+                half_set1_topology = topology_service1.get_half_set_topology(
+                    app=None, force_refresh=False
+                )
+                half_set2_topology = topology_service2.get_half_set_topology(
+                    app=None, force_refresh=False
+                )
+                
+                # Сохраняем в сессии
+                request.session["half_set1_topology"] = half_set1_topology
+                request.session["half_set2_topology"] = half_set2_topology
+                
+                # Преобразуем для отображения
+                view_instance = CalculationView()
+                half_set1_topology_display = view_instance.process_half_set_topology(
+                    half_set1_topology
+                )
+                half_set2_topology_display = view_instance.process_half_set_topology(
+                    half_set2_topology
+                )
+                
+                request.session["half_set1_topology_display"] = half_set1_topology_display
+                request.session["half_set2_topology_display"] = half_set2_topology_display
+                
+            except (ModuleNotFoundError, RuntimeError) as e:
+                FaultCalculationService._log(f"[ERROR] Ошибка при анализе топологии: {str(e)}")
+                # Используем данные из сессии, если есть
+                half_set1_topology_display = request.session.get("half_set1_topology_display")
+                half_set2_topology_display = request.session.get("half_set2_topology_display")
+        except Exception as e:
+            FaultCalculationService._log(f"[ERROR] Ошибка при получении топологии: {str(e)}")
+        
+        # Формируем данные о ЛЭП для ответа
+        line_data = {
+            "id": line.id,
+            "dispatch_name": line.dispatch_name or "",
+            "pf_name": line.pf_name or "",
+            "voltage_level": str(line.voltage_level) if line.voltage_level else "",
+            "current_capacity": str(line.current_capacity) if line.current_capacity else "",
+            "length": str(line.length) if line.length else "",
+            "r1": str(line.r1) if line.r1 is not None else None,
+            "x1": str(line.x1) if line.x1 is not None else None,
+            "r0": str(line.r0) if line.r0 is not None else None,
+            "x0": str(line.x0) if line.x0 is not None else None,
+            "branch_substations": branch_substations,
+        }
+        
+        # Формируем данные об устройстве РЗА
+        device_data = None
+        if protection_device:
+            methodology = protection_device.methodology
+            from django.urls import reverse
+            device_data = {
+                "device_model": protection_device.device_model or "",
+                "manufacturer": protection_device.manufacturer_fk.name if protection_device.manufacturer_fk else "",
+                "methodology_id": methodology.id if methodology else None,
+                "methodology_name": methodology.get_filename() if methodology else "",
+                "methodology_created_at": methodology.created_at.strftime("%d.%m.%Y %H:%M") if methodology else "",
+                "methodology_url": reverse("methodology_document", args=[methodology.id]) if methodology else "",
+            }
+        
+        # Возвращаем успешный ответ с информацией о ЛЭП, устройстве и топологии
+        return JsonResponse({
+            "success": True,
+            "line_id": line.id,
+            "line_name": line.dispatch_name,
+            "line_data": line_data,
+            "device_data": device_data,
+            "half_set1": str(half_set1),
+            "half_set2": str(half_set2),
+            "half_set1_topology_display": half_set1_topology_display,
+            "half_set2_topology_display": half_set2_topology_display,
+            "message": f"ЛЭП '{line.dispatch_name}' успешно выбрана"
+        })
+    else:
+        return JsonResponse({
+            "success": False,
+            "message": "Ошибка валидации формы",
+            "errors": form.errors
+        }, status=400)
+
+
+@require_http_methods(["POST"])
+@login_required
+def update_line_dispatch_name_ajax(request):
+    """AJAX endpoint для обновления диспетчерского наименования ЛЭП."""
+    from core.models import Line
+    
+    line_id = request.POST.get('line_id')
+    dispatch_name = request.POST.get('dispatch_name', '').strip()
+    
+    if not line_id:
+        return JsonResponse({
+            "success": False,
+            "message": "Не указан ID ЛЭП"
+        }, status=400)
+    
+    if not dispatch_name:
+        return JsonResponse({
+            "success": False,
+            "message": "Диспетчерское наименование не может быть пустым"
+        }, status=400)
+    
+    if len(dispatch_name) > 300:
+        return JsonResponse({
+            "success": False,
+            "message": "Диспетчерское наименование не может быть длиннее 300 символов"
+        }, status=400)
+    
+    try:
+        line = Line.objects.get(id=line_id)
+        line.dispatch_name = dispatch_name
+        line.save()
+        
+        return JsonResponse({
+            "success": True,
+            "message": "Диспетчерское наименование успешно обновлено",
+            "dispatch_name": line.dispatch_name
+        })
+    except Line.DoesNotExist:
+        return JsonResponse({
+            "success": False,
+            "message": "ЛЭП не найдена"
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            "success": False,
+            "message": f"Ошибка при сохранении: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@login_required
+def save_calculation_factors_ajax(request):
+    """AJAX endpoint для сохранения коэффициентов расчета в сессию без перезагрузки страницы."""
+    from calculation.forms import CalculationFactorsForm
+    from calculation.services.settings_calculation_map import SETTINGS_CALCULATION_MAP
+    from core.models import Line
+    
+    def normalize_float(value_str):
+        """
+        Нормализует строковое значение числа, поддерживая как точку, так и запятую.
+        Заменяет запятую на точку и удаляет пробелы для корректного парсинга.
+        """
+        if not value_str:
+            return None
+        # Удаляем пробелы и заменяем запятую на точку
+        normalized = str(value_str).strip().replace(',', '.').replace(' ', '')
+        try:
+            return float(normalized)
+        except (ValueError, TypeError):
+            return None
+    
+    # Получаем линию из сессии
+    line_id = request.session.get("line_id")
+    project_name = request.session.get("pf_project_name")
+    line = None
+    if line_id:
+        line_query = Line.objects.filter(pk=line_id)
+        if project_name:
+            line_query = line_query.filter(project_name=project_name)
+        line = line_query.first()
+    
+    # Собираем все коэффициенты из POST запроса
+    calculation_factors = {}
+    
+    # Валидируем только обязательные поля напрямую
+    load_current = request.POST.get("load_current")
+    ct_id = request.POST.get("ct")
+    vt_id = request.POST.get("vt")
+    
+    # Проверяем обязательные поля
+    errors = {}
+    
+    if not load_current:
+        errors["load_current"] = ["Это поле обязательно для заполнения."]
+    else:
+        load_current_value = normalize_float(load_current)
+        if load_current_value is None:
+            errors["load_current"] = ["Введите корректное числовое значение."]
+        elif load_current_value <= 0 or load_current_value > 5000:
+            errors["load_current"] = ["Значение должно быть от 0 до 5000."]
+        else:
+            calculation_factors["load_current"] = load_current_value
+    
+    if not ct_id:
+        errors["ct"] = ["Это поле обязательно для заполнения."]
+    else:
+        try:
+            from core.models import CurrentTransformer
+            ct = CurrentTransformer.objects.get(pk=ct_id)
+            calculation_factors["ct"] = ct
+        except (ValueError, CurrentTransformer.DoesNotExist):
+            errors["ct"] = ["Выберите корректный трансформатор тока."]
+    
+    if not vt_id:
+        errors["vt"] = ["Это поле обязательно для заполнения."]
+    else:
+        try:
+            from core.models import VoltageTransformer
+            vt = VoltageTransformer.objects.get(pk=vt_id)
+            calculation_factors["vt"] = vt
+        except (ValueError, VoltageTransformer.DoesNotExist):
+            errors["vt"] = ["Выберите корректный трансформатор напряжения."]
+    
+    # Если есть ошибки в обязательных полях, возвращаем их
+    if errors:
+        return JsonResponse({
+            "success": False,
+            "message": "Ошибка валидации обязательных полей",
+            "errors": errors
+        }, status=400)
+    
+    # Сохраняем выбранные ТТ и ТН в модель Line
+    ct = calculation_factors.get("ct")
+    vt = calculation_factors.get("vt")
+    
+    if line:
+        # Если ТН не выбран пользователем, но у линии есть напряжение,
+        # пытаемся найти подходящий ТН автоматически
+        if not vt and line.voltage_level:
+            from core.models import VoltageTransformer
+            
+            line_voltage_int = int(float(line.voltage_level))
+            vt_queryset = VoltageTransformer.objects.filter(
+                primary_voltage=line_voltage_int
+            ).order_by('id')
+            
+            if vt_queryset.exists():
+                vt = vt_queryset.first()
+                FaultCalculationService._log(
+                    f"[DEBUG] Автоматически найден ТН для ЛЭП {line.dispatch_name}: {vt} "
+                    f"(напряжение ЛЭП: {line.voltage_level} кВ, primary_voltage ТН: {vt.primary_voltage} кВ)"
+                )
+                line.vt = vt
+            else:
+                FaultCalculationService._log(
+                    f"[WARNING] ТН с primary_voltage={line_voltage_int} кВ не найден для ЛЭП {line.dispatch_name} "
+                    f"при сохранении коэффициентов"
+                )
+        
+        if ct:
+            line.ct = ct
+        if vt:
+            line.vt = vt
+        if ct or vt:
+            line.save()
+    
+    # Сохраняем состояние включения/отключения органов
+    enabled_organs = {}
+    toggleable_organs_list = [
+        "3I0 БЛОК",
+        "3I0 ОТКЛ",
+        "DI1 БЛОК",
+        "DI1 ОТКЛ",
+        "DI2 БЛОК",
+        "DI2 ОТКЛ",
+        "U2 БЛОК",
+        "U2 ОТКЛ",
+    ]
+    for organ_name in toggleable_organs_list:
+        enabled_organs[organ_name] = (
+            request.POST.get(f"organ_enabled_{organ_name}", "off") == "on"
+        )
+    
+    request.session["enabled_organs"] = enabled_organs
+    
+    # Сохраняем ID ТТ и ТН вместо объектов для сериализации в сессию
+    calculation_factors["ct"] = ct.id if ct else None
+    calculation_factors["vt"] = vt.id if vt else None
+    
+    # Затем собираем все остальные коэффициенты из SETTINGS_CALCULATION_MAP
+    for organ_name, organ_data in SETTINGS_CALCULATION_MAP.items():
+        if organ_data.get("calculation_factors"):
+            for factor_key in organ_data["calculation_factors"].keys():
+                # Проверяем, включен ли орган (если он переключаемый)
+                organ_enabled = True
+                if organ_name in toggleable_organs_list:
+                    organ_enabled = enabled_organs.get(organ_name, True)
+                
+                # Собираем коэффициент только если орган включен или если значение есть в POST
+                if factor_key in request.POST:
+                    value = normalize_float(request.POST[factor_key])
+                    if value is not None:
+                        calculation_factors[factor_key] = value
+                    elif organ_enabled:
+                        # Если значение некорректное и орган включен, используем значение по умолчанию
+                        default_value = organ_data["calculation_factors"][
+                            factor_key
+                        ].get("default_value")
+                        if default_value is not None:
+                            calculation_factors[factor_key] = default_value
+    
+    # Логируем выбор ДДТН
+    if "load_current" in calculation_factors:
+        load_current_value = calculation_factors["load_current"]
+        FaultCalculationService._log(
+            f"[DEBUG] Пользователь выбрал ДДРТ (длительно допустимый рабочий ток): {load_current_value} А"
+        )
+    
+    FaultCalculationService._log(f"[DEBUG] Сохраненные коэффициенты: {calculation_factors}")
+    request.session["calculation_factors"] = calculation_factors
+    request.session.modified = True
+    
+    return JsonResponse({
+        "success": True,
+        "message": f"Коэффициенты успешно сохранены. Всего сохранено: {len(calculation_factors)} коэффициентов",
+        "factors_count": len(calculation_factors)
+    })
 
 
 @require_http_methods(["GET"])

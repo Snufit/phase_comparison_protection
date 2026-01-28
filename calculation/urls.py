@@ -32,4 +32,7 @@ urlpatterns = [
         name="get_available_projects_ajax",
     ),
     path("get-line-vt/", views.get_line_vt_ajax, name="get_line_vt_ajax"),
+    path("select-line-ajax/", views.select_line_ajax, name="select_line_ajax"),
+    path("update-line-dispatch-name/", views.update_line_dispatch_name_ajax, name="update_line_dispatch_name_ajax"),
+    path("save-calculation-factors-ajax/", views.save_calculation_factors_ajax, name="save_calculation_factors_ajax"),
 ]
