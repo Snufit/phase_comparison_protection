@@ -197,7 +197,7 @@ def get_pf_line(app, pf_line_name: str):
             # Сохраняем в кэш
             _pf_objects_cache[cache_key] = pf_line
             _pf_objects_cache_time[cache_key] = current_time
-        return pf_line
+        
     except RuntimeError as e:
         if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
             # При ошибке многопоточности пробуем использовать кэш, даже если он старый
@@ -224,7 +224,7 @@ def get_powerfactory_object_by_full_name(app, full_name: str):
     if app is None:
         _log(f"[WARNING] app is None при получении объекта '{full_name}', возвращаем None")
         return None
-    
+
     try:
         study_case = app.GetActiveStudyCase()
         if study_case is None:
@@ -271,7 +271,7 @@ def get_pf_substation(app, pf_substation_name: str):
             # Сохраняем в кэш
             _pf_objects_cache[cache_key] = pf_substation
             _pf_objects_cache_time[cache_key] = current_time
-        return pf_substation
+        
     except RuntimeError as e:
         if "can't be used from other threads" in str(e) or "Ошибка многопоточности" in str(e):
             # При ошибке многопоточности пробуем использовать кэш, даже если он старый

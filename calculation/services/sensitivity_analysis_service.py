@@ -383,7 +383,7 @@ class SensitivityAnalysisService:
                             f"[ERROR] Ошибка при расчете чувствительности R для {component.setting_designation}: {e}"
                         )
                     # Всегда пропускаем дальнейшую обработку для R, так как это специальный случай
-                    continue
+                        continue
                 # Специальная обработка для 3I0 ОТКЛ
                 elif target_fault_value == "3I0":
                     # Для 3I0 ОТКЛ нужна специальная логика - находим минимальное значение на противоположной стороне
@@ -473,7 +473,7 @@ class SensitivityAnalysisService:
 
                         self._log(f"[ERROR] Traceback: {traceback.format_exc()}")
                     # Всегда пропускаем дальнейшую обработку для РНМ, так как это специальный случай
-                    continue
+                        continue
                 else:
                     # Обычная обработка для других органов
                     # Если нужно использовать минимальное значение, находим его
@@ -502,9 +502,9 @@ class SensitivityAnalysisService:
                                 continue
 
                             self._log(
-                                f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
+                                    f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
                                 f"подрежим '{fault_calculation.network_topology}': {target_fault_value} = {fault_value_num}"
-                            )
+                                )
 
                             if min_fault_value is None or fault_value_num < min_fault_value:
                                 min_fault_value = fault_value_num
@@ -556,7 +556,7 @@ class SensitivityAnalysisService:
                                     sensitivity_rate = sensitivity_analysis_function(
                                         result_value, min_fault_value
                                     )
-                                    sensitivity_rate = round(sensitivity_rate, 2)
+                                sensitivity_rate = round(sensitivity_rate, 2)
                                 self._log(
                                     f"[DEBUG] Рассчитана чувствительность: K_ч = {sensitivity_rate}"
                                 )
@@ -575,73 +575,73 @@ class SensitivityAnalysisService:
                         self._log(
                             f"[DEBUG] Обработка всех КЗ ({fault_calculations.count()} шт.) для {component.setting_designation}"
                         )
-                        for fault_calculation in fault_calculations:
-                            fault_value = fault_calculation.fault_values.get(
-                                target_fault_value)
+                for fault_calculation in fault_calculations:
+                    fault_value = fault_calculation.fault_values.get(
+                        target_fault_value)
 
-                            self._log(
-                                f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
-                                f"подрежим '{fault_calculation.network_topology}': {target_fault_value} = {fault_value}"
+                    self._log(
+                        f"[DEBUG]   КЗ {fault_calculation.fault_type} на {fault_calculation.fault_location}, "
+                        f"подрежим '{fault_calculation.network_topology}': {target_fault_value} = {fault_value}"
+                    )
+
+                    # Пропускаем, если нет значения уставки или значения КЗ
+                    if result_value is None or result_value == 0:
+                                self._log(
+                            f"[WARNING] Пропущен расчет чувствительности для {component.setting_designation}: "
+                            f"result_value={result_value}"
+                        )
+                    continue
+
+                    if fault_value is None or fault_value == 0:
+                                self._log(
+                            f"[WARNING] Пропущен расчет чувствительности для {component.setting_designation}: "
+                            f"fault_value={fault_value}"
+                        )
+                    continue
+
+                    try:
+                        # Для IЛ ОТКЛ используем k_sx
+                        if component.setting_designation == "IЛ ОТКЛ":
+                            sensitivity_rate = sensitivity_analysis_function(
+                                result_value, fault_value, k_sx
+                            )
+                        # Для DI2 ОТКЛ используем i2_nr из карты КЗ
+                        elif component.setting_designation == "DI2 ОТКЛ":
+                            fault_map = SensitivityFaultMap.get_fault_map(
+                                "DI2 ОТКЛ")
+                            i2_nr = fault_map.get(
+                                "i2_nr", 0.0) if fault_map else 0.0
+                            sensitivity_rate = sensitivity_analysis_function(
+                                result_value, fault_value, i2_nr
+                            )
+                        # Для K МАН используем специальную формулу с I2 БЛОК
+                                # Используется I1 из К(1) и К(1,1), а не из К(3)
+                        elif component.setting_designation in ["K МАН", "К МАН"]:
+                            # Значения уже в А (не нужно переводить)
+                            i1_value = float(fault_value) if fault_value else 0.0
+                            sensitivity_rate = sensitivity_analysis_function(
+                                        settings_calculation, protection_half_set, i1_value
+                            )
+                        else:
+                            sensitivity_rate = sensitivity_analysis_function(
+                                result_value, fault_value
                             )
 
-                            # Пропускаем, если нет значения уставки или значения КЗ
-                            if result_value is None or result_value == 0:
+                        sensitivity_rate = round(sensitivity_rate, 2)
+                        self._log(
+                            f"[DEBUG] Рассчитана чувствительность: K_ч = {sensitivity_rate}"
+                        )
+                        self._save_result_to_db(
+                            settings_calculation=settings_calculation,
+                            fault_calculation=fault_calculation,
+                            sensitivity_rate=sensitivity_rate,
+                        )
+                        total_analyses += 1
+                    except (ZeroDivisionError, ValueError, TypeError) as e:
                                 self._log(
-                                    f"[WARNING] Пропущен расчет чувствительности для {component.setting_designation}: "
-                                    f"result_value={result_value}"
-                                )
-                                continue
-
-                            if fault_value is None or fault_value == 0:
-                                self._log(
-                                    f"[WARNING] Пропущен расчет чувствительности для {component.setting_designation}: "
-                                    f"fault_value={fault_value}"
-                                )
-                                continue
-
-                            try:
-                                # Для IЛ ОТКЛ используем k_sx
-                                if component.setting_designation == "IЛ ОТКЛ":
-                                    sensitivity_rate = sensitivity_analysis_function(
-                                        result_value, fault_value, k_sx
-                                    )
-                                # Для DI2 ОТКЛ используем i2_nr из карты КЗ
-                                elif component.setting_designation == "DI2 ОТКЛ":
-                                    fault_map = SensitivityFaultMap.get_fault_map(
-                                        "DI2 ОТКЛ")
-                                    i2_nr = fault_map.get(
-                                        "i2_nr", 0.0) if fault_map else 0.0
-                                    sensitivity_rate = sensitivity_analysis_function(
-                                        result_value, fault_value, i2_nr
-                                    )
-                                # Для K МАН используем специальную формулу с I2 БЛОК
-                                # Используется I1 из К(1) и К(1,1), а не из К(3)
-                                elif component.setting_designation in ["K МАН", "К МАН"]:
-                                    # Значения уже в А (не нужно переводить)
-                                    i1_value = float(fault_value) if fault_value else 0.0
-                                    sensitivity_rate = sensitivity_analysis_function(
-                                        settings_calculation, protection_half_set, i1_value
-                                    )
-                                else:
-                                    sensitivity_rate = sensitivity_analysis_function(
-                                        result_value, fault_value
-                                    )
-
-                                sensitivity_rate = round(sensitivity_rate, 2)
-                                self._log(
-                                    f"[DEBUG] Рассчитана чувствительность: K_ч = {sensitivity_rate}"
-                                )
-                                self._save_result_to_db(
-                                    settings_calculation=settings_calculation,
-                                    fault_calculation=fault_calculation,
-                                    sensitivity_rate=sensitivity_rate,
-                                )
-                                total_analyses += 1
-                            except (ZeroDivisionError, ValueError, TypeError) as e:
-                                self._log(
-                                    f"[ERROR] Ошибка при расчете чувствительности для {component.setting_designation}: {e}"
-                                )
-                                continue
+                            f"[ERROR] Ошибка при расчете чувствительности для {component.setting_designation}: {e}"
+                        )
+                    continue
             else:
                 self._log(
                     f"[DEBUG] Пропущен орган {component.setting_designation}: нет обработчика чувствительности"
