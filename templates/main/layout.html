@@ -19,46 +19,79 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary" data-bs-theme="dark">
         <div class="container">
+            <!-- Логотип/Бренд -->
+            <a class="navbar-brand" href="{% url 'home' %}" style="font-size: 20px;">
+                PF.ДФЗ
+            </a>
+            
+            <!-- Кнопка-гамбургер для мобильных устройств -->
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarColor01"
+                aria-controls="navbarColor01" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
             <div class="collapse navbar-collapse" id="navbarColor01">
+                <!-- Основная навигация -->
                 <ul class="navbar-nav me-auto">
-                    <li class="nav-item" style="margin-right: 15px;">
-                        <a class="nav-link" href="{% url 'home' %}" style="font-size: 20px;">PF.ДФЗ</a>
-                    </li>
-                    <li class="nav-item" style="margin-right: 15px;">
+                    <li class="nav-item">
                         <a class="nav-link {% if request.path == '/calculation/' %}active{% endif %}"
-                            href="{% url 'calculation' %}" style="font-size: 20px;">РАСЧЕТ</a>
+                            href="{% url 'calculation' %}" style="font-size: 18px;">
+                            <i class="bi bi-calculator"></i> РАСЧЕТ
+                        </a>
                     </li>
-                    <li class="nav-item" style="margin-right: 15px;">
+                    <li class="nav-item">
                         <a class="nav-link {% if request.path == '/calculation/calculation_list/' %}active{% endif %}"
-                            href="{% url 'calculation_list' %}" style="font-size: 20px;">ИСТОРИЯ</a>
+                            href="{% url 'calculation_list' %}" style="font-size: 18px;">
+                            <i class="bi bi-clock-history"></i> ИСТОРИЯ
+                        </a>
                     </li>
                 </ul>
-                <ul class="navbar-nav ms-auto">
-                    <!-- {% if user.is_authenticated %} -->
-                    <!-- Селектор проекта PowerFactory -->
-                    <li class="nav-item me-3">
+                
+                <!-- Правая часть: Проект + Пользователь -->
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <!-- Компактный селектор проекта -->
+                    <div class="d-flex align-items-center">
                         <form method="post" action="{% url 'calculation' %}" id="project-selection-form"
                             class="d-flex align-items-center">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="select_project">
-                            <div class="d-flex align-items-center">
-                                <span class="text-light me-2" style="font-size: 14px;">Проект PF:</span>
-                                <select name="project_name" id="pf-project-select" class="form-select form-select-sm"
-                                    style="width: 200px;">
-                                    <option value="">Проект не выбран</option>
-                                </select>
-                                <span id="project-status" class="ms-2" style="font-size: 14px;"></span>
-                            </div>
+                            <i class="bi bi-folder text-light me-1"></i>
+                            <select name="project_name" id="pf-project-select" class="form-select form-select-sm"
+                                style="width: 180px;">
+                                <option value="">Проект не выбран</option>
+                            </select>
+                            <span id="project-status" class="ms-2" style="font-size: 14px;"></span>
+                            <span id="project-warning-badge" class="ms-1" style="display: none;"></span>
                         </form>
-                    </li>
-                    <li class="nav-item">
-                        <form method="post" action="{% url 'logout' %}">
-                            {% csrf_token %}
-                            <button class="btn btn-outline-light" type="submit">ВЫХОД</button>
-                        </form>
-                    </li>
-                    <!-- {% endif %} -->
-                </ul>
+                    </div>
+                    
+                    <!-- Меню пользователя -->
+                    <div class="dropdown">
+                        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button"
+                            id="userMenuDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-person-circle"></i> 
+                            <span>{{ user.username|default:"Пользователь" }}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenuDropdown">
+                            {% if user.is_staff %}
+                            <li>
+                                <a class="dropdown-item" href="{% url 'admin:index' %}">
+                                    <i class="bi bi-gear"></i> Админ панель
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endif %}
+                            <li>
+                                <form method="post" action="{% url 'logout' %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="dropdown-item">
+                                        <i class="bi bi-box-arrow-right"></i> Выход
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>
@@ -87,8 +120,8 @@
                                 errorMsg = 'PowerFactory не запущен';
                             }
                             projectSelect.append('<option value="">Проект не выбран</option>');
-                            projectSelect.append('<option value="" disabled>' + errorMsg + '</option>');
                             updateProjectStatus(null, null);
+                            showProjectWarning(errorMsg);
                             return;
                         }
 
@@ -116,11 +149,12 @@
 
                             // Обновляем статус проекта
                             updateProjectStatus(response.current_project, response.project_available);
+                            hideProjectWarning();
                         } else {
                             // Если нет проектов и нет ошибки - возможно PowerFactory не запущен или нет проектов
                             projectSelect.append('<option value="">Проект не выбран</option>');
-                            projectSelect.append('<option value="" disabled>Нет доступных проектов. Убедитесь, что PowerFactory запущен.</option>');
                             updateProjectStatus(null, null);
+                            showProjectWarning('Нет доступных проектов. Убедитесь, что PowerFactory запущен');
                         }
                     },
                     error: function (xhr, status, error) {
@@ -142,10 +176,22 @@
                         }
 
                         projectSelect.append('<option value="">Проект не выбран</option>');
-                        projectSelect.append('<option value="" disabled>' + errorMsg + '</option>');
                         updateProjectStatus(null, null);
+                        showProjectWarning(errorMsg);
                     }
                 });
+            }
+
+            // Функция для отображения badge с предупреждением
+            function showProjectWarning(message) {
+                const badge = $('#project-warning-badge');
+                badge.html('<span class="badge bg-warning text-dark" title="' + message + '"><i class="bi bi-exclamation-triangle-fill"></i></span>');
+                badge.show();
+            }
+
+            // Функция для скрытия badge с предупреждением
+            function hideProjectWarning() {
+                $('#project-warning-badge').hide();
             }
 
             // Функция для обновления статуса проекта
