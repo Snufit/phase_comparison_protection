@@ -29,6 +29,10 @@ class SensitivityAnalysisService:
             str, Dict[str, Union[Callable, List[str], str, float]]
         ] = self._build_sensitivity_handlers()
 
+        # Последние вычисленные детали чувствительности (используется для вывода в UI)
+        # Например, для РННП/3U0_M0: Z0см, Δ3U0, 3U0_эфф, уставка в кВ.
+        self._last_sensitivity_details: Optional[Dict[str, float]] = None
+
     def _log(self, message: str):
         """
         Записывает сообщение в файл логов и в консоль.
@@ -368,10 +372,15 @@ class SensitivityAnalysisService:
                                 f"[DEBUG] Сохранение результатов для {branch_faults.count()} КЗ на ответвлениях"
                             )
                             for fault_calculation in branch_faults:
+                                details = None
+                                # Для РННП/3U0_M0 прикладываем детали (Z0см, Δ3U0, 3U0_эфф и т.п.)
+                                if target_fault_value == "RNM_U0":
+                                    details = getattr(self, "_last_sensitivity_details", None)
                                 self._save_result_to_db(
                                     settings_calculation=settings_calculation,
                                     fault_calculation=fault_calculation,
                                     sensitivity_rate=sensitivity_rate,
+                                    details=details,
                                 )
                                 total_analyses += 1
                         else:
@@ -668,6 +677,7 @@ class SensitivityAnalysisService:
         settings_calculation: SettingsCalculation,
         fault_calculation: FaultCalculation,
         sensitivity_rate: float,
+        details: Optional[Dict] = None,
     ) -> None:
         """
         Метод сохранения результатов анализа чувствительности в базу данных.
@@ -682,6 +692,7 @@ class SensitivityAnalysisService:
             settings_calculation=settings_calculation,
             fault_calculation=fault_calculation,
             sensitivity_rate=sensitivity_rate,
+            details=details,
         )
 
     @staticmethod
@@ -993,11 +1004,25 @@ class SensitivityAnalysisService:
         :return: Коэффициент чувствительности или None при ошибке
         """
         try:
+            # По умолчанию деталей нет (сбрасываем при каждом вызове)
+            self._last_sensitivity_details = None
+
             # Получаем значение уставки
-            rnm_ust = settings_calculation.result_value
-            if rnm_ust is None or rnm_ust == 0:
+            rnm_ust_raw = settings_calculation.result_value
+            if rnm_ust_raw is None or rnm_ust_raw == 0:
                 self._log(f"[WARNING] Уставка РНМ равна нулю или отсутствует")
                 return None
+            
+            # Для РННП уставка сохраняется в В (первичные величины), нужно перевести в кВ
+            # Для РТНП уставка уже в А (первичные величины)
+            if target_fault_value == "RNM_U0":
+                # РННП: переводим из В в кВ
+                rnm_ust = rnm_ust_raw / 1000.0  # кВ
+                self._log(f"[DEBUG] РННП: уставка из БД={rnm_ust_raw:.2f} В, переведена в {rnm_ust:.3f} кВ")
+            else:
+                # РТНП: значение уже в А
+                rnm_ust = rnm_ust_raw  # А
+                self._log(f"[DEBUG] РТНП: уставка из БД={rnm_ust:.2f} А")
 
             # Ищем все КЗ на землю (К(1)) на ответвлениях
             # Проверяем подрежимы с отключением линии с противоположной стороны
@@ -1141,6 +1166,16 @@ class SensitivityAnalysisService:
                             effective_u0 / rnm_ust if rnm_ust > 0 else float("inf")
                         )
 
+                        # Сохраняем детали для отображения в интерфейсе
+                        self._last_sensitivity_details = {
+                            "u0_min_kv": float(min_value),
+                            "z0_offset_ohm": float(z0_offset),
+                            "delta_u0_kv": float(offset_voltage),
+                            "u0_eff_kv": float(effective_u0),
+                            "ust_kv": float(rnm_ust),
+                            "i0_min_srab_a": float(min_3i0_srab),
+                        }
+
                         self._log(
                             f"[DEBUG] РННП с смещением: 3U₀={min_value:.3f} кВ, "
                             f"3I0_МИН_СРАБ={min_3i0_srab:.3f} А, Z₀_см={z0_offset:.3f} Ом, "
@@ -1156,11 +1191,25 @@ class SensitivityAnalysisService:
                         sensitivity_rate = (
                             min_value / rnm_ust if rnm_ust > 0 else float("inf")
                         )
+                        self._last_sensitivity_details = {
+                            "u0_min_kv": float(min_value),
+                            "z0_offset_ohm": float(z0_offset),
+                            "delta_u0_kv": 0.0,
+                            "u0_eff_kv": float(min_value),
+                            "ust_kv": float(rnm_ust),
+                        }
                 else:
                     # Если смещения нет, используем стандартный расчет
                     sensitivity_rate = (
                         min_value / rnm_ust if rnm_ust > 0 else float("inf")
                     )
+                    self._last_sensitivity_details = {
+                        "u0_min_kv": float(min_value),
+                        "z0_offset_ohm": 0.0,
+                        "delta_u0_kv": 0.0,
+                        "u0_eff_kv": float(min_value),
+                        "ust_kv": float(rnm_ust),
+                    }
             else:
                 # Для РТНП используем стандартный расчет
                 sensitivity_rate = (

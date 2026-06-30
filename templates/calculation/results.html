@@ -1,44 +1,106 @@
 {% extends "main/layout.html" %}
 {% block title %}Результаты расчета{% endblock title %}
 {% block content %}
-<div class="container mt-3">
-    <h4 class="mb-3">Результаты расчета</h4>
-    <p><strong>ID расчета:</strong> {{ calculation_meta.id }}</p>
-    <p><strong>Защищаемая ЛЭП:</strong> {{ calculation_meta.line }}</p>
-    <p><strong>Дата расчета:</strong> {{ calculation_meta.calculation_date }}</p>
-    <a href="{% url 'sensitivity_analysis' calculation_meta.id %}" class="btn btn-primary mb-2">
-        <i class="bi bi-search fs-6"></i> Анализ чувствительности
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0">Результаты расчета</h4>
+        <div class="d-flex gap-2">
+            <a href="{% url 'sensitivity_analysis' calculation_meta.id %}" class="btn btn-primary">
+                <i class="bi bi-search"></i> Анализ чувствительности
     </a>
-    <a href="{% url 'export_calculation_results' calculation_meta.id %}" class="btn btn-primary mb-2">
-        <i class="bi bi-filetype-xlsx fs-6"></i> Загрузить отчет
+            <a href="{% url 'export_calculation_results' calculation_meta.id %}" class="btn btn-success">
+                <i class="bi bi-filetype-xlsx"></i> Загрузить отчет
     </a>
-    <body>
-    <table class="table table-hover">
-        <thead>
+        </div>
+    </div>
+    
+    <div class="card mb-3 border-0 shadow-sm">
+        <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <div class="flex-grow-1 min-w-0">
+                    <span class="text-muted small me-2">Защищаемая ЛЭП:</span>
+                    <strong class="text-primary">{{ calculation_meta.line }}</strong>
+                </div>
+                <div class="d-flex align-items-center flex-shrink-0 gap-3">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-calendar-event text-info me-2"></i>
+                        <span class="text-muted small me-2">Дата:</span>
+                        <span class="fw-semibold">{{ calculation_meta.calculation_date|date:"d.m.Y H:i" }}</span>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-hash text-primary me-2"></i>
+                        <span class="text-muted small me-2">ID:</span>
+                        <span class="fw-bold text-primary">{{ calculation_meta.id }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle">
+            <thead class="table-light">
         <tr>
-            <th scope="col">Полукомплект</th>
-            <th scope="col">Орган ДФЗ</th>
-            <th scope="col">Коэффициенты</th>
-            <th scope="col">Значение уставки</th>
+                    <th scope="col" style="width: 20%;">Полукомплект</th>
+                    <th scope="col" style="width: 15%;">Орган ДФЗ</th>
+                    <th scope="col" style="width: 40%;">Коэффициенты</th>
+                    <th scope="col" style="width: 25%;">Значение уставки</th>
         </tr>
         </thead>
         <tbody>
-        {% for result in results %}
+            {% for group in results_grouped %}
+                {% for item in group.results %}
             <tr>
-                <td>{{ result.protection_half_set }}</td>
-                <td>{{ result.component }}</td>
+                        {% if forloop.first %}
+                            <td rowspan="{{ group.results|length }}" class="align-middle fw-semibold bg-light">
+                                {{ group.half_set }}
+                            </td>
+                        {% endif %}
+                        <td class="fw-medium">{{ item.result.component }}</td>
                 <td>
-                    {% if result.calculation_factors %}
-                        {% for factor_type, factor_value in result.calculation_factors.items %}
-                            {{ factor_type }}: {{ factor_value }} <br/>
+                            {% if item.result.calculation_factors %}
+                                <div class="small">
+                                    {% for factor_type, factor_value in item.result.calculation_factors.items %}
+                                        <div class="mb-1">
+                                            <span class="text-muted">{{ factor_type }}:</span>
+                                            <strong>{{ factor_value }}</strong>
+                                        </div>
                         {% endfor %}
+                                </div>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="fw-bold">
+                            {% if item.result.result_value is not None %}
+                                {{ item.result.result_value|floatformat:2 }}{% if item.unit %} <span class="text-muted">{{ item.unit }}</span>{% endif %}
+                            {% else %}
+                                <span class="text-muted">—</span>
                     {% endif %}
                 </td>
-                <td>{{ result.result_value }}</td>
+                    </tr>
+                {% endfor %}
+            {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center text-muted py-4">
+                        Результаты расчета отсутствуют
+                    </td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
-    </body>
+    </div>
 </div>
+
+<style>
+    .table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    .table td {
+        vertical-align: middle;
+    }
+    .table th {
+        border-bottom: 2px solid #dee2e6;
+    }
+</style>
 {% endblock %}

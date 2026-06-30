@@ -56,11 +56,11 @@
                             {% csrf_token %}
                             <input type="hidden" name="action" value="select_project">
                             <i class="bi bi-folder text-light me-1"></i>
-                            <select name="project_name" id="pf-project-select" class="form-select form-select-sm"
+                                <select name="project_name" id="pf-project-select" class="form-select form-select-sm"
                                 style="width: 180px;">
-                                <option value="">Проект не выбран</option>
-                            </select>
-                            <span id="project-status" class="ms-2" style="font-size: 14px;"></span>
+                                    <option value="">Проект не выбран</option>
+                                </select>
+                                <span id="project-status" class="ms-2" style="font-size: 14px;"></span>
                             <span id="project-warning-badge" class="ms-1" style="display: none;"></span>
                         </form>
                     </div>
@@ -78,18 +78,18 @@
                                 <a class="dropdown-item" href="{% url 'admin:index' %}">
                                     <i class="bi bi-gear"></i> Админ панель
                                 </a>
-                            </li>
+                    </li>
                             <li><hr class="dropdown-divider"></li>
                             {% endif %}
                             <li>
                                 <form method="post" action="{% url 'logout' %}" class="d-inline">
-                                    {% csrf_token %}
+                            {% csrf_token %}
                                     <button type="submit" class="dropdown-item">
                                         <i class="bi bi-box-arrow-right"></i> Выход
                                     </button>
-                                </form>
-                            </li>
-                        </ul>
+                        </form>
+                    </li>
+                </ul>
                     </div>
                 </div>
             </div>
@@ -100,6 +100,9 @@
 
     <script>
         $(document).ready(function () {
+            // Инициализируем глобальную переменную для текущего проекта
+            window.currentProject = null;
+            
             const projectSelect = $('#pf-project-select');
             const projectStatus = $('#project-status');
             const projectForm = $('#project-selection-form');
@@ -122,6 +125,10 @@
                             projectSelect.append('<option value="">Проект не выбран</option>');
                             updateProjectStatus(null, null);
                             showProjectWarning(errorMsg);
+                            // Устанавливаем глобальную переменную
+                            window.currentProject = null;
+                            // Вызываем событие загрузки проектов
+                            $(document).trigger('projectsLoaded', [null]);
                             return;
                         }
 
@@ -150,11 +157,21 @@
                             // Обновляем статус проекта
                             updateProjectStatus(response.current_project, response.project_available);
                             hideProjectWarning();
+                            
+                            // Устанавливаем глобальную переменную для текущего проекта
+                            window.currentProject = response.current_project;
+                            
+                            // Вызываем событие загрузки проектов
+                            $(document).trigger('projectsLoaded', [response.current_project]);
                         } else {
                             // Если нет проектов и нет ошибки - возможно PowerFactory не запущен или нет проектов
                             projectSelect.append('<option value="">Проект не выбран</option>');
                             updateProjectStatus(null, null);
                             showProjectWarning('Нет доступных проектов. Убедитесь, что PowerFactory запущен');
+                            // Устанавливаем глобальную переменную
+                            window.currentProject = null;
+                            // Вызываем событие загрузки проектов
+                            $(document).trigger('projectsLoaded', [null]);
                         }
                     },
                     error: function (xhr, status, error) {
@@ -178,6 +195,10 @@
                         projectSelect.append('<option value="">Проект не выбран</option>');
                         updateProjectStatus(null, null);
                         showProjectWarning(errorMsg);
+                        // Устанавливаем глобальную переменную
+                        window.currentProject = null;
+                        // Вызываем событие загрузки проектов
+                        $(document).trigger('projectsLoaded', [null]);
                     }
                 });
             }
@@ -215,6 +236,11 @@
             // Обработчик изменения проекта
             projectSelect.on('change', function () {
                 const selectedValue = $(this).val();
+                // Обновляем глобальную переменную
+                window.currentProject = selectedValue || null;
+                // Вызываем событие изменения проекта
+                $(document).trigger('projectChanged', [selectedValue]);
+                
                 if (selectedValue) {
                     projectForm.submit();
                 } else {

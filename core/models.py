@@ -279,7 +279,7 @@ class Line(models.Model):
         verbose_name="Диспетчерское наименование", max_length=300
     )
     pf_name = models.CharField(
-        verbose_name="Наименование в PowerFactory",
+        verbose_name="Наименование в PF.Protection",
         max_length=100,
         blank=True,
         null=True,
@@ -632,7 +632,7 @@ class Substation(models.Model):
     """Модель подстанции."""
 
     pf_name = models.CharField(
-        verbose_name="Наименование в PowerFactory",
+        verbose_name="Наименование в PF.Protection",
         max_length=100,
         null=True,
         blank=True,

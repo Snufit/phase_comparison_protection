@@ -1,69 +1,99 @@
 {% extends "main/layout.html" %}
 {% block title %}Анализ чувствительности{% endblock title %}
 {% block content %}
-<div class="container mt-3">
-    <h4 class="mb-3">Анализ чувствительности</h4>
-    <p><strong>Защищаемая ЛЭП:</strong> {{ calculation_meta.line }}</p>
-    <p><strong>Дата расчета:</strong> {{ calculation_meta.calculation_date }}</p>
-    <button type="button" class="btn btn-primary mb-2" data-bs-toggle="modal" data-bs-target="#selectModal" data-bs-toggle="tooltip" data-bs-placement="top" title="Построить диаграмму чувствительности">
-        <i class="bi bi-graph-up fs-6"></i> Диаграмма чувствительности
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h4 class="mb-0">Анализ чувствительности</h4>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#selectModal" title="Построить диаграмму чувствительности">
+                <i class="bi bi-graph-up"></i> Диаграмма чувствительности
     </button>
-    <a href="{% url 'export_sensitivity_analysis' calculation_meta.id %}" class="btn btn-primary mb-2" data-bs-toggle="tooltip" data-bs-placement="top" title="Скачать таблицу в формате Excel">
-        <i class="bi bi-filetype-xlsx fs-6"></i> Загрузить отчет
-    </a>
-    <body>
-        <table class="table table-hover">
-            <thead>
+            <a href="{% url 'export_sensitivity_analysis' calculation_meta.id %}" class="btn btn-success" title="Скачать таблицу в формате Excel">
+                <i class="bi bi-filetype-xlsx"></i> Загрузить отчет
+            </a>
+        </div>
+    </div>
+    
+    <div class="card mb-3 border-0 shadow-sm">
+        <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <div class="flex-grow-1 min-w-0">
+                    <span class="text-muted small me-2">Защищаемая ЛЭП:</span>
+                    <strong class="text-primary">{{ calculation_meta.line }}</strong>
+                </div>
+                <div class="d-flex align-items-center flex-shrink-0 gap-3">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-calendar-event text-info me-2"></i>
+                        <span class="text-muted small me-2">Дата:</span>
+                        <span class="fw-semibold">{{ calculation_meta.calculation_date|date:"d.m.Y H:i" }}</span>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-hash text-primary me-2"></i>
+                        <span class="text-muted small me-2">ID:</span>
+                        <span class="fw-bold text-primary">{{ calculation_meta.id }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered align-middle">
+            <thead class="table-light">
             <tr>
-                <th scope="col">Полукомплект</th>
-                <th scope="col">Орган ДФЗ</th>
-                <th scope="col">Схема</th>
-                <th scope="col">Вид КЗ</th>
-                <th scope="col">Чувствительность</th>
-                <th scope="col">Статус</th>
+                    <th scope="col" style="width: 15%;">Полукомплект</th>
+                    <th scope="col" style="width: 15%;">Орган ДФЗ</th>
+                    <th scope="col" style="width: 20%;">Схема</th>
+                    <th scope="col" style="width: 15%;">Вид КЗ</th>
+                    <th scope="col" style="width: 15%;">Чувствительность</th>
+                    <th scope="col" style="width: 20%;">Статус</th>
             </tr>
             </thead>
             <tbody>
-            {% for result in page_obj %}
+            {% if results_grouped %}
+                {% for group in results_grouped %}
+                    {% for result in group.results %}
                 <tr>
-                    <td>{{ result.settings_calculation.protection_half_set }}</td>
-                    <td>{{ result.settings_calculation.component }}</td>
+                            {% if forloop.first %}
+                                <td rowspan="{{ group.results|length }}" class="align-middle fw-semibold bg-light">
+                                    {{ group.half_set }}
+                                </td>
+                            {% endif %}
+                            <td class="fw-medium">{{ result.settings_calculation.component }}</td>
                     <td>{{ result.fault_calculation.network_topology }}</td>
                     <td>{{ result.fault_calculation.fault_type }}</td>
-                    <td>{{ result.sensitivity_rate }}</td>
+                            <td class="fw-bold">
+                                {{ result.sensitivity_rate|floatformat:2 }}
+                                {% if result.details and result.settings_calculation.component.setting_designation == 'РННП/3U0_M0' %}
+                                    <div class="small text-muted mt-1">
+                                        3U0<sub>эфф</sub>={{ result.details.u0_eff_kv|floatformat:3 }} кВ
+                                        {% if result.details.delta_u0_kv %} (Δ={{ result.details.delta_u0_kv|floatformat:3 }} кВ){% endif %}
+                                        {% if result.details.z0_offset_ohm %}, Z<sub>0</sub><sub>см</sub>={{ result.details.z0_offset_ohm|floatformat:3 }} Ом{% endif %}
+                                    </div>
+                                {% endif %}
+                            </td>
                     <td>
-                        {% if result.computed_status == 'Нечувствительна' %}
-                            <span class="badge rounded-pill bg-danger">{{ result.computed_status }}</span>
-                        {% elif result.computed_status == 'Низкая чувствительность' %}
-                            <span class="badge rounded-pill bg-warning">{{ result.computed_status }}</span>
+                                {% if result.computed_status == 'Нечувствительна' %}
+                                    <span class="badge rounded-pill bg-danger">{{ result.computed_status }}</span>
+                                {% elif result.computed_status == 'Низкая чувствительность' %}
+                                    <span class="badge rounded-pill bg-warning">{{ result.computed_status }}</span>
                         {% else %}
-                            <span class="badge rounded-pill bg-success">{{ result.computed_status }}</span>
+                                    <span class="badge rounded-pill bg-success">{{ result.computed_status }}</span>
                         {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                        Результаты анализа чувствительности отсутствуют
                     </td>
                 </tr>
-            {% endfor %}
+            {% endif %}
             </tbody>
         </table>
-
-    <nav aria-label="Навигация">
-        <ul class="pagination">
-            {% if page_obj.has_previous %}
-                <li class="page-item">
-                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}">&laquo;</a>
-                </li>
-            {% endif %}
-            {% for num in page_obj.paginator.page_range %}
-                <li class="page-item {% if num == page_obj.number %}active{% endif %}">
-                    <a class="page-link" href="?page={{ num }}">{{ num }}</a>
-                </li>
-            {% endfor %}
-            {% if page_obj.has_next %}
-                <li class="page-item">
-                    <a class="page-link" href="?page={{ page_obj.next_page_number }}">&raquo;</a>
-                </li>
-            {% endif %}
-        </ul>
-    </nav>
+    </div>
 
     <div class="modal fade" id="selectModal" tabindex="-1" aria-labelledby="selectModalLabel" aria-hidden="true">
         <div class="modal-dialog">
@@ -96,7 +126,17 @@
             </div>
         </div>
     </div>
-
-    </body>
 </div>
+
+<style>
+    .table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    .table td {
+        vertical-align: middle;
+    }
+    .table th {
+        border-bottom: 2px solid #dee2e6;
+    }
+</style>
 {% endblock %}

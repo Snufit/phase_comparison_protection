@@ -227,12 +227,195 @@
     {% if messages %}
     <div class="messages">
         {% for message in messages %}
-        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert" 
+             {% if "Обновление данных проекта" in message|stringformat:"s" or "Данные проекта уже синхронизированы" in message|stringformat:"s" %}data-auto-dismiss="true"{% endif %}>
             {{ message }}
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
         {% endfor %}
     </div>
+    <script>
+        // Автоматическое скрытие сообщений о синхронизации проекта
+        // Глобальная переменная для хранения данных об устройстве
+        // Используем window для гарантии глобальной доступности
+        window.currentDeviceData = window.currentDeviceData || null;
+        
+        // Инициализируем currentDeviceData из data-атрибутов при загрузке страницы
+        // Функция для инициализации currentDeviceData из data-атрибутов
+        function initializeCurrentDeviceData() {
+            const deviceInfoCard = document.getElementById('device_info_card');
+            if (deviceInfoCard) {
+                const methodologyId = deviceInfoCard.getAttribute('data-methodology-id');
+                const methodologyName = deviceInfoCard.getAttribute('data-methodology-name');
+                const methodologyUrl = deviceInfoCard.getAttribute('data-methodology-url');
+                const methodologyDate = deviceInfoCard.getAttribute('data-methodology-date');
+                const deviceModel = deviceInfoCard.getAttribute('data-device-model');
+                const manufacturer = deviceInfoCard.getAttribute('data-manufacturer');
+                
+                if (methodologyId) {
+                    window.currentDeviceData = {
+                        methodology_id: parseInt(methodologyId),
+                        methodology_name: methodologyName || '',
+                        methodology_url: methodologyUrl || '',
+                        methodology_created_at: methodologyDate || null,
+                        device_model: deviceModel || null,
+                        manufacturer: manufacturer || null
+                    };
+                    return true; // Данные успешно инициализированы
+                } else if (deviceModel) {
+                    window.currentDeviceData = {
+                        device_model: deviceModel,
+                        manufacturer: manufacturer || null
+                    };
+                }
+            }
+            return false; // Данные не найдены
+        }
+        
+        // Инициализируем при загрузке страницы
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeCurrentDeviceData);
+        } else {
+            initializeCurrentDeviceData();
+        }
+        
+        // Глобальная функция для обновления модального окна управления методиками
+        // Используем window для гарантии глобальной доступности
+        window.updateMethodologiesModal = function(deviceData, retryCount) {
+            retryCount = retryCount || 0;
+            const maxRetries = 5;
+            
+            if (!deviceData || !deviceData.methodology_id) {
+                // Если методики нет, убираем все бейджи "Текущая" и классы table-info
+                $('#modalMethodologies .badge.bg-success').remove();
+                $('#modalMethodologies tr.table-info').removeClass('table-info');
+                // Показываем все кнопки "Сделать текущей"
+                $('#modalMethodologies .set-methodology-btn').show();
+                return;
+            }
+            
+            const currentMethodologyId = parseInt(deviceData.methodology_id);
+            
+            // Убираем все существующие бейджи "Текущая" и классы table-info
+            $('#modalMethodologies .badge.bg-success').remove();
+            $('#modalMethodologies tr.table-info').removeClass('table-info');
+            
+            // Показываем все кнопки "Сделать текущей"
+            $('#modalMethodologies .set-methodology-btn').show();
+            
+            // Находим строку с текущей методикой и добавляем бейдж и класс
+            // Проверяем, что таблица существует и содержит строки
+            const $tableBody = $('#modalMethodologies tbody');
+            if ($tableBody.length === 0) {
+                // Если таблицы нет, возможно, список методик еще не загружен
+                // Попробуем еще раз через небольшую задержку
+                if (retryCount < maxRetries) {
+                    setTimeout(function() {
+                        window.updateMethodologiesModal(deviceData, retryCount + 1);
+                    }, 200);
+                }
+                return;
+            }
+            
+            // Проверяем, что в таблице есть строки
+            const $rows = $tableBody.find('tr');
+            if ($rows.length === 0) {
+                // Если строк нет, возможно, список методик еще не загружен
+                if (retryCount < maxRetries) {
+                    setTimeout(function() {
+                        window.updateMethodologiesModal(deviceData, retryCount + 1);
+                    }, 200);
+                }
+                return;
+            }
+            
+            let found = false;
+            $rows.each(function() {
+                const $row = $(this);
+                const $setBtn = $row.find('.set-methodology-btn');
+                if ($setBtn.length) {
+                    const methodologyIdAttr = $setBtn.attr('data-methodology-id');
+                    if (methodologyIdAttr) {
+                        const methodologyId = parseInt(methodologyIdAttr);
+                        if (!isNaN(methodologyId) && methodologyId === currentMethodologyId) {
+                            found = true;
+                            // Это текущая методика - добавляем бейдж, класс и скрываем кнопку
+                            const $link = $row.find('a[href*="methodology_document"]');
+                            if ($link.length) {
+                                // Добавляем бейдж, если его еще нет
+                                if (!$link.next('.badge.bg-success').length) {
+                                    $link.after('<span class="badge bg-success ms-2"><i class="bi bi-check-circle me-1"></i>Текущая</span>');
+                                }
+                                // Добавляем класс table-info для выделения строки
+                                $row.addClass('table-info');
+                            }
+                            // Скрываем кнопку "Сделать текущей"
+                            $setBtn.hide();
+                        }
+                    }
+                }
+            });
+            
+            // Если методика не найдена, возможно, список еще не загружен
+            // Попробуем еще раз через небольшую задержку
+            if (!found && retryCount < maxRetries) {
+                setTimeout(function() {
+                    window.updateMethodologiesModal(deviceData, retryCount + 1);
+                }, 300);
+            }
+        };
+        
+        $(document).ready(function() {
+            // Инициализируем currentDeviceData из data-атрибутов
+            initializeCurrentDeviceData();
+            
+            // Если данных нет (например, при AJAX-обновлении), пытаемся извлечь из DOM
+            if (!window.currentDeviceData || !window.currentDeviceData.methodology_id) {
+                const methodologyLink = document.getElementById('methodology_document_link');
+                const deviceModel = document.getElementById('device_model');
+                const deviceManufacturer = document.getElementById('device_manufacturer');
+                
+                if (methodologyLink && methodologyLink.href && 
+                    methodologyLink.href !== '#' && 
+                    methodologyLink.href !== window.location.origin + '/#' &&
+                    methodologyLink.href.indexOf('/methodology/') !== -1) {
+                    // Извлекаем ID методики из href (например, /methodology/123/)
+                    const match = methodologyLink.href.match(/\/methodology\/(\d+)\//);
+                    if (match) {
+                        const methodologyId = parseInt(match[1]);
+                        const methodologyDate = document.getElementById('methodology_date');
+                        
+                        // Формируем данные об устройстве из DOM
+                        window.currentDeviceData = {
+                            methodology_id: methodologyId,
+                            methodology_name: '',
+                            methodology_url: methodologyLink.href,
+                            methodology_created_at: methodologyDate ? methodologyDate.textContent.trim() : null,
+                            device_model: deviceModel ? deviceModel.textContent.trim() : null,
+                            manufacturer: deviceManufacturer ? deviceManufacturer.textContent.trim() : null
+                        };
+                    }
+                } else if (deviceModel && deviceModel.textContent.trim()) {
+                    // Если есть устройство, но нет методики
+                    window.currentDeviceData = {
+                        device_model: deviceModel.textContent.trim(),
+                        manufacturer: deviceManufacturer ? deviceManufacturer.textContent.trim() : null
+                    };
+                }
+            }
+            
+            // Находим все сообщения с атрибутом data-auto-dismiss
+            $('.alert[data-auto-dismiss="true"]').each(function() {
+                const $alert = $(this);
+                // Скрываем сообщение через 4 секунды
+                setTimeout(function() {
+                    $alert.fadeOut(500, function() {
+                        $(this).remove();
+                    });
+                }, 4000);
+            });
+        });
+    </script>
     {% endif %}
 
     <form method="post">
@@ -508,7 +691,7 @@
                                     <i class="bi bi-pencil"></i>
                                 </button>
                             </p>
-                            <p><strong>Наименование в PowerFactory: </strong>
+                            <p><strong>Наименование в PF.Protection: </strong>
                                 <span id="line_pf_name">${lineData.pf_name || ''}</span>
                             </p>
                             <p><strong>Напряжение, кВ: </strong>
@@ -530,11 +713,6 @@
                         `;
                         
                         $lineInfoBody.html(fullHtml);
-                        
-                        // Инициализируем обработчик для кнопки редактирования
-                        $(document).off('click', '.edit-dispatch-name-btn').on('click', '.edit-dispatch-name-btn', function(e) {
-                            // Обработчик уже должен быть инициализирован глобально, но на всякий случай
-                        });
                     } else {
                         // Элементы уже существуют, просто обновляем их
                         const $dispatchNameContainer = $('#line_dispatch_name').parent();
@@ -609,7 +787,47 @@
                         $('#methodology_document_p').hide();
                         $('#methodology_date_p').hide();
                         $('#methodology_management_container button').hide();
+                        // Очищаем глобальную переменную
+                        window.currentDeviceData = null;
+                        // Удаляем data-атрибуты
+                        const $deviceInfoCard = $('#device_info_card');
+                        $deviceInfoCard.removeAttr('data-methodology-id');
+                        $deviceInfoCard.removeAttr('data-methodology-name');
+                        $deviceInfoCard.removeAttr('data-methodology-url');
+                        $deviceInfoCard.removeAttr('data-methodology-date');
+                        $deviceInfoCard.removeAttr('data-device-model');
+                        $deviceInfoCard.removeAttr('data-manufacturer');
                         return;
+                    }
+                    
+                    // Сохраняем данные об устройстве в глобальную переменную
+                    window.currentDeviceData = deviceData;
+                    
+                    // Обновляем data-атрибуты на элементе device_info_card для синхронизации
+                    const $deviceInfoCard = $('#device_info_card');
+                    if (deviceData.methodology_id) {
+                        $deviceInfoCard.attr('data-methodology-id', deviceData.methodology_id);
+                        if (deviceData.methodology_name) {
+                            $deviceInfoCard.attr('data-methodology-name', deviceData.methodology_name);
+                        }
+                        if (deviceData.methodology_url) {
+                            $deviceInfoCard.attr('data-methodology-url', deviceData.methodology_url);
+                        }
+                        if (deviceData.methodology_created_at) {
+                            $deviceInfoCard.attr('data-methodology-date', deviceData.methodology_created_at);
+                        }
+                    } else {
+                        $deviceInfoCard.removeAttr('data-methodology-id');
+                        $deviceInfoCard.removeAttr('data-methodology-name');
+                        $deviceInfoCard.removeAttr('data-methodology-url');
+                        $deviceInfoCard.removeAttr('data-methodology-date');
+                    }
+                    
+                    if (deviceData.device_model) {
+                        $deviceInfoCard.attr('data-device-model', deviceData.device_model);
+                    }
+                    if (deviceData.manufacturer) {
+                        $deviceInfoCard.attr('data-manufacturer', deviceData.manufacturer);
                     }
                     
                     // Обновляем модель устройства
@@ -620,8 +838,11 @@
                     
                     // Обновляем информацию о методике
                     if (deviceData.methodology_id && deviceData.methodology_name) {
-                        // Обновляем ссылку на документ методики
-                        $('#methodology_document_link').attr('href', deviceData.methodology_url || '#');
+                        // Обновляем ссылку на документ методики с правильной структурой
+                        const $methodologyLink = $('#methodology_document_link');
+                        $methodologyLink.attr('href', deviceData.methodology_url || '#');
+                        // Сохраняем структуру ссылки с иконкой
+                        $methodologyLink.html('<i class="bi bi-file-earmark-pdf"></i> Открыть методику');
                         $('#methodology_document_p').show();
                         
                         // Обновляем дату загрузки
@@ -638,15 +859,56 @@
                     }
                     
                     // Показываем кнопку управления методиками, если есть устройство
-                    if (deviceData.device_model) {
-                        $('#methodology_management_container button').show();
-                    } else {
-                        $('#methodology_management_container button').hide();
+                    const $methodologyButton = $('#methodology_management_container button');
+                    if (deviceData.device_model && $methodologyButton.length) {
+                        // Убираем inline стиль и показываем кнопку
+                        $methodologyButton.css('display', '').show();
+                    } else if ($methodologyButton.length) {
+                        $methodologyButton.hide();
                     }
                     
                     // Показываем карточку, если она была скрыта
                     $('#device_info_card').show();
+                    
+                    // Переинициализируем currentDeviceData из обновленных data-атрибутов
+                    // Это гарантирует синхронизацию данных
+                    initializeCurrentDeviceData();
                 }
+                
+                // Функция для обновления формы генератора подрежимов
+                function updateSubmodesGeneratorForm(submodesData, halfSet1Name, halfSet2Name) {
+                    if (!submodesData) {
+                        return;
+                    }
+                    
+                    // Обновляем заголовки полукомплектов в модальном окне генератора подрежимов
+                    if (halfSet1Name) {
+                        $('#modalSubmodes .col-md-6.border-end h5').first().text(halfSet1Name);
+                    }
+                    if (halfSet2Name) {
+                        $('#modalSubmodes .col-md-6:not(.border-end) h5').first().text(halfSet2Name);
+                    }
+                    
+                    // Обновляем данные для полукомплекта 1
+                    if (submodesData.half_set1) {
+                        const data1 = submodesData.half_set1;
+                        $('#id_half_set1-min_outages').val(0); // Минимальное всегда 0
+                        $('#id_half_set1-max_outages').val(data1.max_outages !== undefined && data1.max_outages !== null ? data1.max_outages : '');
+                        $('#id_half_set1-max_lines').val(data1.max_lines !== undefined && data1.max_lines !== null ? data1.max_lines : '');
+                        $('#id_half_set1-max_autotransformers').val(data1.max_autotransformers !== undefined && data1.max_autotransformers !== null ? data1.max_autotransformers : '');
+                    }
+                    
+                    // Обновляем данные для полукомплекта 2
+                    if (submodesData.half_set2) {
+                        const data2 = submodesData.half_set2;
+                        $('#id_half_set2-min_outages').val(0); // Минимальное всегда 0
+                        $('#id_half_set2-max_outages').val(data2.max_outages !== undefined && data2.max_outages !== null ? data2.max_outages : '');
+                        $('#id_half_set2-max_lines').val(data2.max_lines !== undefined && data2.max_lines !== null ? data2.max_lines : '');
+                        $('#id_half_set2-max_autotransformers').val(data2.max_autotransformers !== undefined && data2.max_autotransformers !== null ? data2.max_autotransformers : '');
+                    }
+                }
+                
+                // Функция updateMethodologiesModal теперь определена в глобальной области видимости (в начале скрипта)
                 
                 // Функция для обновления информации о топологии полукомплектов
                 function updateTopologyInfo(halfSet1Name, halfSet2Name, topology1, topology2) {
@@ -802,22 +1064,10 @@
                         $('.line-card').removeClass('border-primary');
                         $card.addClass('border-primary');
                         
-                        // Прокручиваем к выбранной карточке для визуальной связи
-                        const cardOffset = $card.offset();
-                        if (cardOffset) {
-                            const cardHeight = $card.outerHeight();
-                            const windowHeight = $(window).height();
-                            const scrollTop = $(window).scrollTop();
-                            const targetScroll = cardOffset.top + scrollTop - (windowHeight / 2) + (cardHeight / 2);
-                            $('html, body').animate({
-                                scrollTop: targetScroll
-                            }, 300);
-                        }
-                        
                         // Устанавливаем значение в скрытое поле формы
                         $('#id_line').val(lineId).trigger('change');
                         
-                        // Отправляем AJAX запрос для выбора ЛЭП (без перезагрузки страницы)
+                        // Отправляем AJAX запрос для выбора ЛЭП
                         $.ajax({
                             url: '{% url "select_line_ajax" %}',
                             type: 'POST',
@@ -833,6 +1083,26 @@
                                     updateTopologyInfo(response.half_set1, response.half_set2, 
                                                       response.half_set1_topology_display, 
                                                       response.half_set2_topology_display);
+                                    
+                                    // Обновляем модальное окно управления методиками
+                                    if (typeof window.updateMethodologiesModal === 'function') {
+                                        window.updateMethodologiesModal(response.device_data);
+                                    }
+                                    
+                                    // Если модальное окно "Управление методиками" открыто, обновляем список методик
+                                    const modalMethodologies = document.getElementById('modalMethodologies');
+                                    if (modalMethodologies && $(modalMethodologies).hasClass('show')) {
+                                        // Модальное окно открыто, обновляем список методик
+                                        refreshMethodologiesList();
+                                    }
+                                    
+                                    // Обновляем форму генератора подрежимов
+                                    if (response.submodes_data) {
+                                        updateSubmodesGeneratorForm(response.submodes_data, response.half_set1, response.half_set2);
+                                    }
+                                    
+                                    // Переинициализируем обработчики событий после обновления DOM
+                                    reinitializeEventHandlers();
                                 } else {
                                     alert('Ошибка: ' + (response.message || 'Не удалось выбрать ЛЭП'));
                                     // Снимаем выделение при ошибке
@@ -886,6 +1156,33 @@
                     const voltage = $('#id_voltage_filter').val();
                     const container = $('#lines_list_container');
                     const selectedLineId = $('#id_line').val();
+
+                    // Проверяем, выбран ли проект (используем глобальную переменную или значение селекта)
+                    const projectName = window.currentProject || $('#pf-project-select').val();
+                    if (!projectName) {
+                        // Показываем сообщение, что нужно выбрать проект
+                        let noProjectMessage = '<div class="text-center py-5">';
+                        noProjectMessage += '<div class="mb-3">';
+                        noProjectMessage += '<i class="bi bi-folder-x text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                        noProjectMessage += '</div>';
+                        noProjectMessage += '<h5 class="text-muted mb-3">Проект не выбран</h5>';
+                        noProjectMessage += '<p class="text-muted mb-0">Пожалуйста, выберите проект PowerFactory для отображения ЛЭП.</p>';
+                        noProjectMessage += '</div>';
+                        container.html(noProjectMessage);
+                        
+                        // Очищаем выпадающий список
+                        const lineSelect = $('#id_line');
+                        lineSelect.empty();
+                        lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+                        
+                        // Очищаем данные
+                        allLinesData = [];
+                        
+                        // Скрываем разделитель
+                        $('#main_list_separator').hide();
+                        
+                        return;
+                    }
 
                     // Показываем индикатор загрузки
                     container.html('<div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary" role="status"><span class="visually-hidden">Загрузка...</span></div> <span class="ms-2">Загрузка ЛЭП...</span></div>');
@@ -1004,34 +1301,167 @@
                     localStorage.removeItem('line_type_filter_' + projectKey);
                     localStorage.removeItem('voltage_filter_' + projectKey);
                     
-                    // Загружаем список ЛЭП для нового проекта
-                    updateLineList();
+                    // Проверяем, выбран ли проект (используем глобальную переменную или значение селекта)
+                    const projectName = window.currentProject || $('#pf-project-select').val();
+                    if (projectName) {
+                        // Загружаем список ЛЭП для нового проекта
+                        updateLineList();
+                    } else {
+                        // Показываем сообщение о необходимости выбора проекта
+                        const container = $('#lines_list_container');
+                        let noProjectMessage = '<div class="text-center py-5">';
+                        noProjectMessage += '<div class="mb-3">';
+                        noProjectMessage += '<i class="bi bi-folder-x text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                        noProjectMessage += '</div>';
+                        noProjectMessage += '<h5 class="text-muted mb-3">Проект не выбран</h5>';
+                        noProjectMessage += '<p class="text-muted mb-0">Пожалуйста, выберите проект PowerFactory для отображения ЛЭП.</p>';
+                        noProjectMessage += '</div>';
+                        container.html(noProjectMessage);
+                        
+                        // Очищаем выпадающий список
+                        const lineSelect = $('#id_line');
+                        lineSelect.empty();
+                        lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+                        
+                        // Очищаем данные
+                        allLinesData = [];
+                        
+                        // Скрываем разделитель
+                        $('#main_list_separator').hide();
+                    }
                 });
                 
-                // Восстанавливаем фильтры при загрузке страницы
+                // Сбрасываем фильтры при загрузке страницы
                 setTimeout(function() {
-                    // Стандартное восстановление фильтров из localStorage
-                    // Сначала явно очищаем фильтры
+                    // Сбрасываем фильтры при входе на страницу
                     $('#id_voltage_filter').val(null).trigger('change.select2');
                     $('#id_line_type_filter').val(null).trigger('change.select2');
                     
-                    // Затем восстанавливаем из localStorage (если есть сохраненные)
-                    // Функция restoreFiltersFromStorage сама проверит валидность значений
-                    restoreFiltersFromStorage();
+                    // Очищаем поиск
+                    $('#line_search_input').val('');
+                    searchQuery = '';
+                    $('#clear_search_btn').hide();
                     
-                    // Дополнительная проверка: если после восстановления значения все еще пустые,
-                    // убеждаемся, что Select2 отображает placeholder
-                    if (!$('#id_voltage_filter').val() || $('#id_voltage_filter').val() === '') {
-                        $('#id_voltage_filter').val(null).trigger('change.select2');
+                    // Загружаем список ЛЭП только если проект выбран
+                    // Используем глобальную переменную или значение селекта
+                    const projectName = window.currentProject || $('#pf-project-select').val();
+                    if (projectName) {
+                        updateLineList();
+                    } else {
+                        // Показываем сообщение о необходимости выбора проекта
+                        const container = $('#lines_list_container');
+                        let noProjectMessage = '<div class="text-center py-5">';
+                        noProjectMessage += '<div class="mb-3">';
+                        noProjectMessage += '<i class="bi bi-folder-x text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                        noProjectMessage += '</div>';
+                        noProjectMessage += '<h5 class="text-muted mb-3">Проект не выбран</h5>';
+                        noProjectMessage += '<p class="text-muted mb-0">Пожалуйста, выберите проект PowerFactory для отображения ЛЭП.</p>';
+                        noProjectMessage += '</div>';
+                        container.html(noProjectMessage);
+                        
+                        // Очищаем выпадающий список
+                        const lineSelect = $('#id_line');
+                        lineSelect.empty();
+                        lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+                        
+                        // Скрываем разделитель
+                        $('#main_list_separator').hide();
                     }
-                    if (!$('#id_line_type_filter').val() || $('#id_line_type_filter').val() === '') {
-                        $('#id_line_type_filter').val(null).trigger('change.select2');
-                    }
-                    
-                    // Загружаем список ЛЭП (с восстановленными фильтрами или без них)
-                    // Если фильтров нет, показываем первые 18 ЛЭП
-                    updateLineList();
                 }, 300);
+                
+                // Обработчик события загрузки проектов
+                $(document).on('projectsLoaded', function(event, currentProject) {
+                    // Обновляем глобальную переменную
+                    window.currentProject = currentProject;
+                    
+                    // Если проект выбран, загружаем список ЛЭП
+                    if (currentProject) {
+                        updateLineList();
+                    } else {
+                        // Показываем сообщение о необходимости выбора проекта
+                        const container = $('#lines_list_container');
+                        let noProjectMessage = '<div class="text-center py-5">';
+                        noProjectMessage += '<div class="mb-3">';
+                        noProjectMessage += '<i class="bi bi-folder-x text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                        noProjectMessage += '</div>';
+                        noProjectMessage += '<h5 class="text-muted mb-3">Проект не выбран</h5>';
+                        noProjectMessage += '<p class="text-muted mb-0">Пожалуйста, выберите проект PowerFactory для отображения ЛЭП.</p>';
+                        noProjectMessage += '</div>';
+                        container.html(noProjectMessage);
+                        
+                        // Очищаем выпадающий список
+                        const lineSelect = $('#id_line');
+                        lineSelect.empty();
+                        lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+                        
+                        // Скрываем разделитель
+                        $('#main_list_separator').hide();
+                    }
+                });
+                
+                // Проверяем, если проекты уже загружены (на случай, если событие произошло до установки обработчика)
+                if (window.currentProject !== undefined) {
+                    if (window.currentProject) {
+                        // Если проект уже выбран, загружаем список ЛЭП
+                        setTimeout(function() {
+                            updateLineList();
+                        }, 100);
+                    } else {
+                        // Если проект не выбран, показываем сообщение
+                        setTimeout(function() {
+                            const container = $('#lines_list_container');
+                            let noProjectMessage = '<div class="text-center py-5">';
+                            noProjectMessage += '<div class="mb-3">';
+                            noProjectMessage += '<i class="bi bi-folder-x text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                            noProjectMessage += '</div>';
+                            noProjectMessage += '<h5 class="text-muted mb-3">Проект не выбран</h5>';
+                            noProjectMessage += '<p class="text-muted mb-0">Пожалуйста, выберите проект PowerFactory для отображения ЛЭП.</p>';
+                            noProjectMessage += '</div>';
+                            container.html(noProjectMessage);
+                            
+                            // Очищаем выпадающий список
+                            const lineSelect = $('#id_line');
+                            lineSelect.empty();
+                            lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+                            
+                            // Скрываем разделитель
+                            $('#main_list_separator').hide();
+                        }, 100);
+                    }
+                }
+                
+                // Обработчик события изменения проекта
+                $(document).on('projectChanged', function(event, selectedValue) {
+                    // Обновляем глобальную переменную
+                    window.currentProject = selectedValue || null;
+                    
+                    // Если проект выбран, загружаем список ЛЭП
+                    if (selectedValue) {
+                        updateLineList();
+                    } else {
+                        // Показываем сообщение о необходимости выбора проекта
+                        const container = $('#lines_list_container');
+                        let noProjectMessage = '<div class="text-center py-5">';
+                        noProjectMessage += '<div class="mb-3">';
+                        noProjectMessage += '<i class="bi bi-folder-x text-muted" style="font-size: 3rem; opacity: 0.5;"></i>';
+                        noProjectMessage += '</div>';
+                        noProjectMessage += '<h5 class="text-muted mb-3">Проект не выбран</h5>';
+                        noProjectMessage += '<p class="text-muted mb-0">Пожалуйста, выберите проект PowerFactory для отображения ЛЭП.</p>';
+                        noProjectMessage += '</div>';
+                        container.html(noProjectMessage);
+                        
+                        // Очищаем выпадающий список
+                        const lineSelect = $('#id_line');
+                        lineSelect.empty();
+                        lineSelect.append('<option value="">ЛЭП не выбрана</option>');
+                        
+                        // Очищаем данные
+                        allLinesData = [];
+                        
+                        // Скрываем разделитель
+                        $('#main_list_separator').hide();
+                    }
+                });
 
                 // Автоматическое обновление ТН при выборе ЛЭП
                 $('#id_line').on('change', function () {
@@ -1058,7 +1488,14 @@
                 });
             });
             
-            // Inline редактирование диспетчерского наименования
+            // Функция для переинициализации всех обработчиков событий после обновления DOM
+            function reinitializeEventHandlers() {
+                // Обработчик редактирования dispatch_name уже работает через делегирование событий,
+                // но убеждаемся, что он активен
+                // Дополнительные обработчики можно добавить здесь при необходимости
+            }
+            
+            // Inline редактирование диспетчерского наименования (делегирование событий)
             $(document).on('click', '.edit-dispatch-name-btn', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1154,8 +1591,8 @@
                                     </button>
                                 `);
                                 
-                                // Обновляем также в списке карточек, если нужно
-                                updateLineCardsAfterEdit(lineId, response.dispatch_name);
+                                // Карточки показывают pf_name, поэтому не обновляем их при изменении dispatch_name
+                                // updateLineCardsAfterEdit(lineId, response.dispatch_name);
                     } else {
                                 alert('Ошибка: ' + (response.message || 'Не удалось сохранить'));
                             }
@@ -1200,27 +1637,12 @@
             });
             
             // Функция для обновления карточек после редактирования
+            // Примечание: карточки показывают pf_name, поэтому при редактировании dispatch_name карточки не обновляются
+            // Если нужно обновить карточку (например, при изменении pf_name), нужно перезагрузить список
             function updateLineCardsAfterEdit(lineId, newDispatchName) {
-                // Обновляем текст в карточке, если она видна
-                const $card = $(`.line-card[data-line-id="${lineId}"]`);
-                if ($card.length) {
-                    $card.find('.line-number').text(newDispatchName);
-                    
-                    // Обновляем tooltip
-                    const voltage = $card.data('voltage');
-                    const lineType = $card.find('.line-type-text').text();
-                    
-                    let fullTooltip = newDispatchName;
-                    if (voltage) {
-                        fullTooltip += '; Напряжение: ' + voltage + ' кВ';
-                    }
-                    if (lineType) {
-                        fullTooltip += '; Тип: ' + lineType;
-                    }
-                    
-                    // Обновляем нативный title атрибут
-                    $card.attr('title', fullTooltip);
-                }
+                // Карточки показывают pf_name, а не dispatch_name, поэтому не обновляем их здесь
+                // Если нужно обновить карточку, лучше перезагрузить список ЛЭП
+                // Оставляем функцию для совместимости, но она не будет обновлять карточки
             }
         </script>
     </form>
@@ -1247,7 +1669,7 @@
                             <i class="bi bi-pencil"></i>
                         </button>
                     </p>
-                    <p><strong>Наименование в PowerFactory: </strong>
+                    <p><strong>Наименование в PF.Protection: </strong>
                         <span id="line_pf_name">{{ line.pf_name }}</span>
                     </p>
                     <p><strong>Напряжение, кВ: </strong>
@@ -1294,7 +1716,15 @@
     </div>
 
             <!-- Карточка устройства РЗА -->
-            <div class="card mt-3" id="device_info_card">
+            <div class="card mt-3" id="device_info_card"
+                 {% if methodology %}data-methodology-id="{{ methodology.id }}"
+                 data-methodology-name="{{ methodology.get_filename|escapejs }}"
+                 data-methodology-url="{% url 'methodology_document' methodology.id %}"
+                 data-methodology-date="{{ methodology.created_at|date:'d.m.Y H:i' }}"
+                 {% endif %}
+                 {% if protection_device %}data-device-model="{{ protection_device.device_model|escapejs }}"
+                 {% if protection_device.manufacturer_fk %}data-manufacturer="{{ protection_device.manufacturer_fk.name|escapejs }}"{% endif %}
+                 {% endif %}>
         <div class="card-header">
                     Устройство РЗА
         </div>
@@ -1310,13 +1740,13 @@
                         </span>
                     </p>
                     <div id="methodology_info_container">
-                        {% if methodology %}
+                    {% if methodology %}
                         <p id="methodology_document_p"><strong>Документ методики: </strong>
                             <a id="methodology_document_link" href="{% url 'methodology_document' methodology.id %}" target="_blank"
-                                rel="noopener noreferrer" class="text-decoration-none">
-                                <i class="bi bi-file-earmark-pdf"></i> Открыть методику
-                            </a>
-                        </p>
+                            rel="noopener noreferrer" class="text-decoration-none">
+                            <i class="bi bi-file-earmark-pdf"></i> Открыть методику
+                        </a>
+                    </p>
                         <p id="methodology_date_p" class="text-muted small mb-0">
                             <i class="bi bi-calendar3"></i> Дата загрузки: <span id="methodology_date">{{ methodology.created_at|date:"d.m.Y H:i" }}</span>
                         </p>
@@ -1329,11 +1759,11 @@
                         </p>
                         <p id="methodology_date_p" class="text-muted small mb-0" style="display: none;">
                             <i class="bi bi-calendar3"></i> Дата загрузки: <span id="methodology_date"></span>
-                        </p>
-                        {% endif %}
+                    </p>
+                    {% endif %}
                     </div>
                     <div id="methodology_management_container" class="mt-2">
-                        {% if protection_device %}
+                    {% if protection_device %}
                         <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
                             data-bs-target="#modalMethodologies">
                             <i class="bi bi-gear"></i> Управление методиками
@@ -1343,7 +1773,7 @@
                             data-bs-target="#modalMethodologies" style="display: none;">
                             <i class="bi bi-gear"></i> Управление методиками
                         </button>
-                        {% endif %}
+                    {% endif %}
                     </div>
                 </div>
             </div>
@@ -1760,8 +2190,8 @@
                                             <input type="number" 
                                                    class="form-control form-control-lg {% if organ.toggleable and not organ.enabled %}bg-light{% endif %}" 
                                                    id="id_{{ factor_key }}"
-                                                   name="{{ factor_key }}"
-                                                   value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
+                                                name="{{ factor_key }}"
+                                                value="{% if factor_data.current_value is not None %}{{ factor_data.current_value|unlocalize }}{% elif factor_data.default_value is not None %}{{ factor_data.default_value|unlocalize }}{% endif %}"
                                                    step="{% if factor_data.step is not None %}{{ factor_data.step|unlocalize }}{% else %}0.01{% endif %}" 
                                                    min="{% if factor_data.min is not None %}{{ factor_data.min|unlocalize }}{% else %}0{% endif %}" 
                                                    max="{% if factor_data.max is not None %}{{ factor_data.max|unlocalize }}{% endif %}"
@@ -1832,6 +2262,83 @@
             $('#modalCalculationFactors').on('show.bs.modal', function () {
                 // Значения уже загружены из сессии при рендеринге страницы через Django template
                 // Нативные tooltips работают автоматически через атрибут title
+            });
+            
+            // Обработчик открытия модального окна "Управление методиками"
+            // Используем shown.bs.modal вместо show.bs.modal, чтобы модальное окно было полностью отрендерено
+            $('#modalMethodologies').on('shown.bs.modal', function () {
+                // Всегда переинициализируем currentDeviceData из data-атрибутов при открытии модального окна
+                // Это гарантирует, что данные актуальны, даже если они были обновлены через AJAX
+                initializeCurrentDeviceData();
+                
+                // Если после инициализации данных все еще нет, пытаемся извлечь из DOM
+                if (!window.currentDeviceData || !window.currentDeviceData.methodology_id) {
+                    const methodologyLink = document.getElementById('methodology_document_link');
+                    const deviceModel = document.getElementById('device_model');
+                    const deviceManufacturer = document.getElementById('device_manufacturer');
+                    const methodologyDate = document.getElementById('methodology_date');
+                    
+                    // Проверяем, что элемент существует и не скрыт, и содержит валидный href
+                    if (methodologyLink && methodologyLink.href && 
+                        methodologyLink.href !== '#' && 
+                        methodologyLink.href !== window.location.origin + '/#' &&
+                        methodologyLink.href.indexOf('/methodology/') !== -1) {
+                        // Извлекаем ID методики из href (например, /methodology/123/)
+                        const match = methodologyLink.href.match(/\/methodology\/(\d+)\//);
+                        if (match) {
+                            const methodologyId = parseInt(match[1]);
+                            
+                            window.currentDeviceData = {
+                                methodology_id: methodologyId,
+                                methodology_name: '',
+                                methodology_url: methodologyLink.href,
+                                methodology_created_at: methodologyDate ? methodologyDate.textContent.trim() : null,
+                                device_model: deviceModel ? deviceModel.textContent.trim() : null,
+                                manufacturer: deviceManufacturer ? deviceManufacturer.textContent.trim() : null
+                            };
+                        }
+                    }
+                }
+                
+                // Используем несколько попыток с увеличивающейся задержкой для гарантии, что DOM полностью обновлен
+                let attemptCount = 0;
+                const maxAttempts = 3;
+                
+                function tryUpdateMethodologies() {
+                    attemptCount++;
+                    try {
+                        // Получаем информацию о текущей методике из глобальной переменной
+                        let deviceData = window.currentDeviceData;
+                        
+                        // Проверяем, что таблица существует и содержит строки
+                        const $tableBody = $('#modalMethodologies tbody');
+                        if ($tableBody.length > 0 && $tableBody.find('tr').length > 0) {
+                            // Таблица загружена, обновляем бейджи
+                            if (deviceData && deviceData.methodology_id && typeof window.updateMethodologiesModal === 'function') {
+                                window.updateMethodologiesModal(deviceData);
+                            } else if (typeof window.updateMethodologiesModal === 'function') {
+                                // Если методики нет, очищаем бейджи
+                                window.updateMethodologiesModal(null);
+                            }
+                        } else if (attemptCount < maxAttempts) {
+                            // Таблица еще не загружена, пробуем еще раз
+                            setTimeout(tryUpdateMethodologies, 150 * attemptCount);
+                        } else {
+                            // После всех попыток все равно обновляем (на случай, если таблица пустая)
+                            if (deviceData && deviceData.methodology_id && typeof window.updateMethodologiesModal === 'function') {
+                                window.updateMethodologiesModal(deviceData);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Ошибка при обновлении модального окна методик:', error);
+                        if (attemptCount < maxAttempts) {
+                            setTimeout(tryUpdateMethodologies, 150 * attemptCount);
+                        }
+                    }
+                }
+                
+                // Начинаем попытки обновления
+                setTimeout(tryUpdateMethodologies, 50);
             });
             
             // Нормализация числовых значений: автоматическая замена запятой на точку
@@ -2160,11 +2667,121 @@
 
                         // Восстанавливаем позицию скролла
                         modalBody.scrollTop = scrollPosition;
+                        
+                        // Переинициализируем обработчик формы добавления методики
+                        initializeMethodologyFormHandler();
+                        
+                        // Восстанавливаем бейджи "Текущая" после обновления содержимого
+                        if (typeof window.updateMethodologiesModal === 'function') {
+                            // Получаем данные из глобальной переменной или DOM
+                            let deviceData = window.currentDeviceData;
+                            
+                            // Если данных нет в глобальной переменной, пытаемся извлечь из DOM
+                            if (!deviceData) {
+                                const methodologyLink = document.getElementById('methodology_document_link');
+                                if (methodologyLink && methodologyLink.href && methodologyLink.href !== '#') {
+                                    // Извлекаем ID методики из href (например, /methodology/123/)
+                                    const match = methodologyLink.href.match(/\/methodology\/(\d+)\//);
+                                    if (match) {
+                                        const methodologyId = parseInt(match[1]);
+                                        const methodologyName = methodologyLink.textContent.trim().replace('Открыть методику', '').trim();
+                                        
+                                        deviceData = {
+                                            methodology_id: methodologyId,
+                                            methodology_name: methodologyName,
+                                            methodology_url: methodologyLink.href
+                                        };
+                                    }
+                                }
+                            }
+                            
+                            // Обновляем модальное окно с информацией о текущей методике
+                            if (deviceData) {
+                                window.updateMethodologiesModal(deviceData);
+                            } else {
+                                window.updateMethodologiesModal(null);
+                            }
+                        }
                     }
                 })
                 .catch(error => {
                     console.error('Error refreshing methodologies list:', error);
                 });
+        }
+        
+        // Функция для инициализации обработчика формы добавления методики
+        function initializeMethodologyFormHandler() {
+            const form = document.getElementById('addMethodologyForm');
+            if (!form) return;
+            
+            // Удаляем старый обработчик, если он есть
+            const newForm = form.cloneNode(true);
+            form.parentNode.replaceChild(newForm, form);
+            
+            // Добавляем новый обработчик
+            document.getElementById('addMethodologyForm')?.addEventListener('submit', function (e) {
+                e.preventDefault();
+                const form = this;
+
+                // Проверяем, что выбран файл
+                const fileInput = form.querySelector('#id_file');
+
+                if (!fileInput.files.length) {
+                    alert('Пожалуйста, выберите файл для загрузки.');
+                    return;
+                }
+
+                const formData = new FormData(form);
+
+                fetch(form.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                        // НЕ устанавливаем Content-Type - браузер установит его автоматически с правильной границей для multipart/form-data
+                    }
+                })
+                    .then(response => {
+                        // Пытаемся получить JSON, даже если статус не 200
+                        return response.json().then(data => {
+                            return { ok: response.ok, status: response.status, data: data };
+                        }).catch(() => {
+                            // Если не удалось распарсить JSON, возвращаем текст
+                            return response.text().then(text => {
+                                return { ok: response.ok, status: response.status, data: { message: text } };
+                            });
+                        });
+                    })
+                    .then(result => {
+                        const data = result.data;
+                        if (result.ok && data.success) {
+                            // Очищаем форму
+                            form.reset();
+
+                            // Обновляем список методик без перезагрузки страницы
+                            // Модальное окно НЕ закрывается
+                            refreshMethodologiesList();
+                        } else {
+                            // Показываем детальные ошибки валидации
+                            let errorMessage = data.message || 'Не удалось добавить методику';
+                            if (data.errors) {
+                                const errorDetails = Object.entries(data.errors)
+                                    .map(([field, errors]) => {
+                                        const errorList = Array.isArray(errors) ? errors : [errors];
+                                        return `${field}: ${errorList.join(', ')}`;
+                                    })
+                                    .join('\n');
+                                errorMessage += '\n\nДетали:\n' + errorDetails;
+                            }
+                            alert('Ошибка: ' + errorMessage);
+                            console.error('Form submission error:', data);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Произошла ошибка при добавлении методики: ' + error.message);
+                    });
+            });
         }
 
         // Используем делегирование событий для кнопок удаления и установки методики (работает с динамически добавляемыми элементами)
@@ -2259,69 +2876,8 @@
             }
         });
 
-        // Обработка добавления методики через AJAX
-        document.getElementById('addMethodologyForm')?.addEventListener('submit', function (e) {
-            e.preventDefault();
-            const form = this;
-
-            // Проверяем, что выбран файл
-            const fileInput = form.querySelector('#id_file');
-
-            if (!fileInput.files.length) {
-                alert('Пожалуйста, выберите файл для загрузки.');
-                return;
-            }
-
-            const formData = new FormData(form);
-
-            fetch(form.action, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                    // НЕ устанавливаем Content-Type - браузер установит его автоматически с правильной границей для multipart/form-data
-                }
-            })
-                .then(response => {
-                    // Пытаемся получить JSON, даже если статус не 200
-                    return response.json().then(data => {
-                        return { ok: response.ok, status: response.status, data: data };
-                    }).catch(() => {
-                        // Если не удалось распарсить JSON, возвращаем текст
-                        return response.text().then(text => {
-                            return { ok: response.ok, status: response.status, data: { message: text } };
-                        });
-                    });
-                })
-                .then(result => {
-                    const data = result.data;
-                    if (result.ok && data.success) {
-                        // Очищаем форму
-                        form.reset();
-
-                        // Обновляем список методик без перезагрузки страницы
-                        refreshMethodologiesList();
-                    } else {
-                        // Показываем детальные ошибки валидации
-                        let errorMessage = data.message || 'Не удалось добавить методику';
-                        if (data.errors) {
-                            const errorDetails = Object.entries(data.errors)
-                                .map(([field, errors]) => {
-                                    const errorList = Array.isArray(errors) ? errors : [errors];
-                                    return `${field}: ${errorList.join(', ')}`;
-                                })
-                                .join('\n');
-                            errorMessage += '\n\nДетали:\n' + errorDetails;
-                        }
-                        alert('Ошибка: ' + errorMessage);
-                        console.error('Form submission error:', data);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('Произошла ошибка при добавлении методики: ' + error.message);
-                });
-        });
+        // Инициализация обработчика формы добавления методики при загрузке страницы
+        initializeMethodologyFormHandler();
     </script>
 
     <script>

@@ -326,7 +326,7 @@ class CalculationView(LoginRequiredMixin, TemplateView):
             
             if "vt" in form_initial and isinstance(form_initial["vt"], int):
                 try:
-                    from core.models import VoltageTransformer
+                    # VoltageTransformer уже импортирован глобально
                     form_initial["vt"] = VoltageTransformer.objects.get(pk=form_initial["vt"])
                 except VoltageTransformer.DoesNotExist:
                     form_initial.pop("vt", None)
@@ -1338,6 +1338,14 @@ def filter_lines_ajax(request):
         "pf_project_name"
     )
 
+    # Если проект не выбран, возвращаем пустой список
+    if not project_name:
+        return JsonResponse({
+            "lines": [],
+            "total_count": 0,
+            "message": "Проект не выбран. Пожалуйста, выберите проект для отображения ЛЭП."
+        })
+
     queryset = Line.objects.all()
     if project_name:
         queryset = queryset.filter(project_name=project_name)
@@ -1360,7 +1368,9 @@ def filter_lines_ajax(request):
     for line in queryset:
         line_data = {
             "id": line.id,
-            "name": line.dispatch_name,
+            "name": line.pf_name or line.dispatch_name,  # Используем pf_name, если есть, иначе dispatch_name
+            "dispatch_name": line.dispatch_name,  # Сохраняем dispatch_name для других целей
+            "pf_name": line.pf_name,  # Сохраняем pf_name отдельно
             "voltage_level": float(line.voltage_level) if line.voltage_level else None,
             "line_type_name": line.line_type.type_code if line.line_type else None,
         }
@@ -1486,6 +1496,32 @@ def select_line_ajax(request):
                 "methodology_url": reverse("methodology_document", args=[methodology.id]) if methodology else "",
             }
         
+        # Вычисляем максимальные значения для формы подрежимов на основе топологии
+        # Используем ту же логику, что и в CalculationView.get()
+        submodes_data = {}
+        if half_set1_topology_display:
+            # Получаем исходную топологию из сессии для расчета max_outages
+            half_set1_topology = request.session.get("half_set1_topology", [])
+            half_set1_max_outages = (len(half_set1_topology) + 1) // 2 if half_set1_topology else 0
+            half_set1_max_lines = (len(half_set1_topology_display.get("ЛЭП", [])) + 1) // 2
+            half_set1_max_autotransformers = len(half_set1_topology_display.get("АТ", [])) // 2
+            submodes_data["half_set1"] = {
+                "max_outages": half_set1_max_outages,
+                "max_lines": half_set1_max_lines,
+                "max_autotransformers": half_set1_max_autotransformers,
+            }
+        if half_set2_topology_display:
+            # Получаем исходную топологию из сессии для расчета max_outages
+            half_set2_topology = request.session.get("half_set2_topology", [])
+            half_set2_max_outages = (len(half_set2_topology) + 1) // 2 if half_set2_topology else 0
+            half_set2_max_lines = (len(half_set2_topology_display.get("ЛЭП", [])) + 1) // 2
+            half_set2_max_autotransformers = len(half_set2_topology_display.get("АТ", [])) // 2
+            submodes_data["half_set2"] = {
+                "max_outages": half_set2_max_outages,
+                "max_lines": half_set2_max_lines,
+                "max_autotransformers": half_set2_max_autotransformers,
+            }
+        
         # Возвращаем успешный ответ с информацией о ЛЭП, устройстве и топологии
         return JsonResponse({
             "success": True,
@@ -1497,6 +1533,7 @@ def select_line_ajax(request):
             "half_set2": str(half_set2),
             "half_set1_topology_display": half_set1_topology_display,
             "half_set2_topology_display": half_set2_topology_display,
+            "submodes_data": submodes_data,
             "message": f"ЛЭП '{line.dispatch_name}' успешно выбрана"
         })
     else:
@@ -1860,10 +1897,40 @@ class TestView(View):
 
 
 def calculation_results(request, calculation_meta_id):
+    from calculation.services.settings_calculation_map import SETTINGS_CALCULATION_MAP
+    
     calculation_meta = CalculationMeta.objects.get(id=calculation_meta_id)
     results = SettingsCalculation.objects.filter(
         calculation_meta=calculation_meta
-    ).order_by("protection_half_set")
+    ).order_by("protection_half_set", "component__setting_designation")
+    
+    # Группируем результаты по полукомплектам
+    results_by_halfset = {}
+    for result in results:
+        half_set_id = result.protection_half_set.id
+        if half_set_id not in results_by_halfset:
+            results_by_halfset[half_set_id] = {
+                'half_set': result.protection_half_set,
+                'results': []
+            }
+        
+        # Добавляем единицы измерения к каждому результату
+        result_dict = {
+            'result': result,
+            'unit': ''
+        }
+        # Получаем единицы измерения из карты
+        if result.component and result.component.setting_designation:
+            organ_name = result.component.setting_designation
+            if organ_name in SETTINGS_CALCULATION_MAP:
+                unit = SETTINGS_CALCULATION_MAP[organ_name].get('unit', '')
+                result_dict['unit'] = unit
+        results_by_halfset[half_set_id]['results'].append(result_dict)
+    
+    # Преобразуем в список для шаблона, сохраняя порядок
+    results_grouped = []
+    for half_set_id in sorted(results_by_halfset.keys()):
+        results_grouped.append(results_by_halfset[half_set_id])
 
     # Логируем для диагностики
     FaultCalculationService._log(f"[DEBUG] ========== Отображение результатов расчета ==========")
@@ -1942,7 +2009,7 @@ def calculation_results(request, calculation_meta_id):
     return render(
         request,
         "calculation/results.html",
-        {"results": results, "calculation_meta": calculation_meta},
+        {"results": results, "calculation_meta": calculation_meta, "results_grouped": results_grouped},
     )
 
 
@@ -1962,8 +2029,26 @@ def sensitivity_analysis(request, calculation_meta_id):
         f"[DEBUG] Отображение анализа чувствительности: ID={calculation_meta_id}, ЛЭП={calculation_meta.line}, Найдено записей: {sens_analysis.count()}"
     )
 
-    # Добавляем пагинацию
-    paginator = Paginator(sens_analysis, 15)  # 15 записей на страницу
+    # Группируем результаты по полукомплектам
+    results_by_halfset = {}
+    for result in sens_analysis:
+        half_set = result.settings_calculation.protection_half_set
+        half_set_id = half_set.id
+        if half_set_id not in results_by_halfset:
+            results_by_halfset[half_set_id] = {
+                'half_set': half_set,
+                'results': []
+            }
+        results_by_halfset[half_set_id]['results'].append(result)
+    
+    # Преобразуем в список для шаблона, сохраняя порядок
+    results_grouped = []
+    for half_set_id in sorted(results_by_halfset.keys()):
+        results_grouped.append(results_by_halfset[half_set_id])
+
+    # Добавляем пагинацию для всех результатов (не группированных)
+    # Но передаем группированные результаты в шаблон
+    paginator = Paginator(sens_analysis, 50)  # 50 записей на страницу (для обратной совместимости)
     page_number = request.GET.get("page")
     page_obj = paginator.get_page(page_number)
 
@@ -1993,6 +2078,7 @@ def sensitivity_analysis(request, calculation_meta_id):
             "sens_analysis": sens_analysis,  # Оставляем для обратной совместимости
             "unique_components": unique_components,
             "unique_half_sets": unique_half_sets,
+            "results_grouped": results_grouped,  # Группированные результаты
         },
     )
 
@@ -2113,6 +2199,8 @@ def export_sensitivity_analysis(request, calculation_meta_id):
 
 
 def export_calculation_results(request, calculation_meta_id):
+    from calculation.services.settings_calculation_map import SETTINGS_CALCULATION_MAP
+    
     calculation_meta = CalculationMeta.objects.get(id=calculation_meta_id)
     calculations = SettingsCalculation.objects.filter(calculation_meta=calculation_meta).order_by("protection_half_set", "component__setting_designation")
     
@@ -2159,11 +2247,19 @@ def export_calculation_results(request, calculation_meta_id):
         primary_value = calculation.primary_value if calculation.primary_value is not None else calculation.result_value
         secondary_value = calculation.secondary_value if calculation.secondary_value is not None else None
 
+        # Получаем единицы измерения из карты
+        unit = ""
+        if calculation.component and calculation.component.setting_designation:
+            organ_name = calculation.component.setting_designation
+            if organ_name in SETTINGS_CALCULATION_MAP:
+                unit = SETTINGS_CALCULATION_MAP[organ_name].get('unit', '')
+
         ws.cell(row=row_num, column=1, value=str(calculation.protection_half_set))
         ws.cell(row=row_num, column=2, value=str(calculation.component))
         ws.cell(row=row_num, column=3, value=coefficients)
         ws.cell(row=row_num, column=4, value=primary_value)
         ws.cell(row=row_num, column=5, value=secondary_value if secondary_value is not None else "")
+        ws.cell(row=row_num, column=6, value=unit)
 
     # Создаем HTTP-ответ с файлом Excel
     response = HttpResponse(

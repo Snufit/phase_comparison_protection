@@ -645,14 +645,14 @@ class SettingsCalculationService:
             * (u2_imbalance_voltage + u2_load_voltage)
         )
 
-        # Переводим из вторичных вольт в первичные кВ для сохранения в БД
+        # Переводим из вторичных вольт в первичные В для сохранения в БД
         # В save_result_to_db будет обратное преобразование для secondary_value
         vt_ratio = self.voltage_transformer_factor
         if vt_ratio and vt_ratio > 0:
-            u2_block_value = u2_block_value_secondary * vt_ratio / 1000  # в кВ
+            u2_block_value = u2_block_value_secondary * vt_ratio  # в В (первичные)
         else:
             # Если коэффициент трансформации не задан, используем значение по умолчанию
-            u2_block_value = u2_block_value_secondary * 5000 / 1000  # в кВ
+            u2_block_value = u2_block_value_secondary * 5000  # в В (первичные)
 
         calculation_factors = {
             "Коэффициент отстройки": u2_grading_factor,
@@ -755,14 +755,16 @@ class SettingsCalculationService:
         # Используем коэффициент трансформации ТН для перевода в первичные величины
         vt_ratio = self.voltage_transformer_factor
 
-        # Напряжение небаланса в первичных величинах (кВ)
-        u0_imbalance_primary = (
-            rnnp_imbalance_voltage_secondary * vt_ratio) / 1000
+        # Напряжение небаланса в первичных величинах (В)
+        # rnnp_imbalance_voltage_secondary в В, vt_ratio в В, результат в В
+        u0_imbalance_primary = rnnp_imbalance_voltage_secondary * vt_ratio
 
         # Утроенное напряжение нулевой последовательности при несимметрии (значение задается пользователем через calculation_factors)
-        u0_asymmetry = self.calculation_factors.get("u0_asymmetry", 0.0)
+        # Если задано в кВ, переводим в В
+        u0_asymmetry_kv = self.calculation_factors.get("u0_asymmetry", 0.0)
+        u0_asymmetry = u0_asymmetry_kv * 1000 if u0_asymmetry_kv else 0.0  # Переводим из кВ в В
 
-        # Уставка реле направления мощности (в первичных величинах, кВ)
+        # Уставка реле направления мощности (в первичных величинах, В)
         rnnp_value = (
             rnnp_grading_factor
             / rnnp_reset_factor
@@ -773,7 +775,8 @@ class SettingsCalculationService:
         # Для проверки чувствительности и расчета смещения используем именно "итоговую" уставку,
         # иначе можно посчитать Z₀_см под 2.646 кВ, а в анализе чувствительности будет 3.0 кВ
         # и смещения окажется недостаточно.
-        rnnp_value_for_sensitivity = round(rnnp_value, 0)
+        # Округляем в В, но для сравнения с min_3u0_at_zone_end (который в кВ) нужно перевести
+        rnnp_value_for_sensitivity = round(rnnp_value / 1000, 0)  # Переводим в кВ для сравнения
 
         calculation_factors = {
             "Коэффициент отстройки": rnnp_grading_factor,
@@ -829,6 +832,7 @@ class SettingsCalculationService:
                 # Если чувствительность недостаточна, применяем смещение
                 if sensitivity_without_offset < k_ch_required:
                     # Рассчитываем Z₀_см по формуле (3.9)
+                    # _calculate_offset_resistance ожидает значения в кВ
                     z0_offset = self._calculate_offset_resistance(
                         rnnp_value_for_sensitivity, min_3u0_at_zone_end
                     )
@@ -1653,7 +1657,15 @@ class SettingsCalculationService:
                             )
                         else:
                             result, factors = calculation_function()
+                            
+                            # Специальное округление для РННП/3U0_M0: округляем до 1000 В
+                            if component.setting_designation == "РННП/3U0_M0":
+                                # Округляем до ближайшей тысячи вольт
+                                result = round(result / 1000) * 1000
+                            else:
+                                # Для остальных органов округляем до целого числа
                             result = round(result, 0)
+                            
                             self.save_result_to_db(
                                 protection_half_set=protection_half_set,
                                 component=component,

@@ -120,6 +120,12 @@ class SensitivityAnalysis(models.Model):
         FaultCalculation, on_delete=models.CASCADE, related_name="sensitivity_analysis"
     )
     sensitivity_rate = models.FloatField(verbose_name="Коэффициент чувствительности")
+    details = models.JSONField(
+        verbose_name="Детали расчета",
+        null=True,
+        blank=True,
+        help_text="Дополнительные вычисленные величины для интерпретации результата (например, 3U0_эфф для РННП).",
+    )
     status = models.CharField(
         verbose_name="Статус",
         max_length=255,

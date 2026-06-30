@@ -14,6 +14,8 @@ rectangle "Веб-приложение\nрасчета параметров\nн�
     ' Группа: Аутентификация
     package "Аутентификация и авторизация" {
         usecase "Авторизация" as UC_Auth
+        usecase "Выход из системы" as UC_Logout
+        usecase "Доступ к админ панели" as UC_AdminPanel
     }
 
     ' Группа: Работа с проектом
@@ -25,14 +27,17 @@ rectangle "Веб-приложение\nрасчета параметров\nн�
     ' Группа: Работа с ЛЭП
     package "Работа с защищаемой ЛЭП" {
         usecase "Выбор защищаемой ЛЭП" as UC_SelectLine
+        usecase "Поиск ЛЭП" as UC_SearchLines
         usecase "Фильтрация ЛЭП\nпо типу и напряжению" as UC_FilterLines
         usecase "Просмотр информации\nо выбранной ЛЭП" as UC_ViewLineInfo
+        usecase "Редактирование диспетчерского\nнаименования ЛЭП" as UC_EditLineDispatchName
         usecase "Просмотр списка ЛЭП" as UC_ViewLinesList
     }
 
     ' Группа: Настройка расчета
     package "Настройка параметров расчета" {
         usecase "Настройка коэффициентов\nрасчета" as UC_ConfigureFactors
+        usecase "Настройка общих параметров\n(ДДТН, выбор ТТ/ТН)" as UC_ConfigureGeneralParams
         usecase "Выбор органов ДФЗ" as UC_SelectOrgans
         usecase "Генерация подрежимов" as UC_GenerateSubmodes
     }
@@ -85,13 +90,17 @@ rectangle "Веб-приложение\nрасчета параметров\nн�
 
 ' Связи Технолога СРЗА
 Tech --> UC_Auth
+Tech --> UC_Logout
 Tech --> UC_SelectProject
 Tech --> UC_SyncProject
 Tech --> UC_SelectLine
+Tech --> UC_SearchLines
 Tech --> UC_FilterLines
 Tech --> UC_ViewLineInfo
+Tech --> UC_EditLineDispatchName
 Tech --> UC_ViewLinesList
 Tech --> UC_ConfigureFactors
+Tech --> UC_ConfigureGeneralParams
 Tech --> UC_SelectOrgans
 Tech --> UC_GenerateSubmodes
 Tech --> UC_CalculateSettings
@@ -110,6 +119,8 @@ Tech --> UC_ViewDBObjects
 
 ' Связи Администратора
 Admin --> UC_Auth
+Admin --> UC_Logout
+Admin --> UC_AdminPanel
 Admin --> UC_ViewDBObjects
 Admin --> UC_AddDBObject
 Admin --> UC_EditDBObject
@@ -123,9 +134,12 @@ Admin --> UC_AssignPermissions
 
 ' Зависимости между вариантами использования
 UC_SelectProject ..> UC_SyncProject : <<include>>
+UC_SelectLine ..> UC_SearchLines : <<include>>
 UC_SelectLine ..> UC_FilterLines : <<include>>
 UC_SelectLine ..> UC_ViewLineInfo : <<include>>
+UC_EditLineDispatchName ..> UC_ViewLineInfo : <<extend>>
 UC_ConfigureFactors ..> UC_SelectOrgans : <<include>>
+UC_ConfigureGeneralParams ..> UC_SelectLine : <<extend>>
 UC_CalculateSettings ..> UC_GenerateSubmodes : <<extend>>
 UC_SensitivityAnalysis ..> UC_CalculateSettings : <<extend>>
 UC_ViewResults ..> UC_CalculateSettings : <<extend>>
@@ -133,6 +147,7 @@ UC_ViewSensitivity ..> UC_SensitivityAnalysis : <<extend>>
 UC_ViewChart ..> UC_SensitivityAnalysis : <<extend>>
 UC_ExportResults ..> UC_ViewResults : <<extend>>
 UC_ExportSensitivity ..> UC_ViewSensitivity : <<extend>>
+UC_AdminPanel ..> UC_Auth : <<extend>>
 UC_EditUser ..> UC_ViewUsers : <<include>>
 UC_DeleteUser ..> UC_ViewUsers : <<include>>
 UC_AssignPermissions ..> UC_ViewUsers : <<include>>
